@@ -11,11 +11,11 @@ This repository now contains a working development foundation. **It is not a liv
 | Environment | Python 3.12, locked dependencies, SQLite, CLI, authenticated API, CI | Publish the cloud environment snapshot for future tasks |
 | Discovery and analysis | Normalized JSON imports, permitted HTTPS feeds, explained scores out of 10 | Whop Content Rewards / `vyro.com` official API or permitted export/feed access |
 | Selection and editing | New-account/Jordan gates; choose best eligible campaign; approved local footage to portrait H264/AAC MP4 | Actual campaign terms, rights, fresh budget and eligibility evidence |
-| Publishing | YouTube resumable upload; Instagram container/status/publish; exact media approval; duplicate-write barriers | Owner OAuth, platform permissions, verified target IDs, first-publication review; Instagram immutable hosting |
+| Publishing | YouTube refresh-token renewal and resumable upload; Instagram container/status/publish; exact media approval; duplicate-write barriers | Owner OAuth, platform permissions, verified target IDs, first-publication review; Instagram immutable hosting and renewal verification |
 | Tracking | Provider view snapshots, submission/approval/payment evidence ledger | Provider campaign submission/earnings API remains unverified; ledger entries are operator-recorded |
-| Recurrence | Durable schedules, worker, Docker services with restart policies | An authorized always-on cloud host and persistent storage; none provisioned here |
+| Recurrence | Durable local worker, Docker services, six-hour GitHub cloud observation workflow behind opt-in gates | Verified free usage and enabled schedule; live publishing still requires a durable production host/ledger |
 
-See [validation results](docs/validation.md), [integration evidence and limitations](docs/integrations.md), [operations](docs/operations.md), and [architecture](docs/architecture.md).
+See [validation results](docs/validation.md), [campaign access](docs/campaign-access.md), [account authorization](docs/account-authorization.md), [cloud execution](docs/cloud-deployment.md), and [owner actions](docs/next-actions.md).
 
 ## Development
 
@@ -38,6 +38,8 @@ uv run --frozen ruff check .
 uv run --frozen pytest -q
 uv build
 uv run --frozen rewards status
+uv run --frozen rewards readiness
+uv run --frozen rewards verify-accounts
 ```
 
 The API requires `Authorization: Bearer <REWARDS_ADMIN_TOKEN>` for every business endpoint. Only `/health` is public. Missing authentication configuration disables business endpoints. Set a strong random token securely if using the API. CLI commands operate directly on the local database without an API token. Do not expose the API publicly without HTTPS and access controls.
@@ -63,14 +65,16 @@ Scores are **heuristic priority scores, not profit predictions**:
 * Remaining budget: up to 2 points, `2 × budget / (budget + 1000)`.
 * Verified requirements and rights: up to 1.5 points, decreasing with requirement count.
 
-Selection separately requires explicit Jordan (`JO`) eligibility, new-account permission, zero minimum followers, an allowed target platform, positive rate/budget, approved materials, verified requirements/rights, and evidence no older than seven days. A verification flag is an operator attestation supported by actual campaign terms; this software cannot establish account eligibility from a flag alone. Provider feeds cannot self-authorize these flags. Unknown payout access is not assumed available.
+Selection separately requires explicit Jordan (`JO`) creator-residency eligibility, new-account permission, zero minimum followers, an allowed target platform, positive rate/budget, approved materials, verified requirements/rights, evidence no older than seven days, and no known expired deadline. Audience geography is a separate field. The optional payout evidence, qualifying-view terms and per-video cap support real publication review. A verification flag is an operator attestation supported by actual campaign terms; this software cannot establish account eligibility from a flag alone. Provider feeds cannot self-authorize these flags. Unknown payout access is not assumed available.
 
 ## Operating limits
 
 Whop Content Rewards and Vyro campaign APIs have **not** been confirmed. No restricted scraping or undocumented endpoints are used. An official Whop advertising campaign API is not treated as a creator rewards API. Vyro means [vyro.com](https://vyro.com/).
 
-The transport adapters are mock-tested. Google upload methods were checked against Google's official discovery definition. Instagram's live contract, chosen version and permissions still require verification. No live publishing or account integration test has passed yet. Access-token refresh is not implemented; expiring credentials must be renewed securely before unattended publishing can be considered operational.
+The transport adapters are mock-tested. Google upload methods were checked against Google's official discovery definition. Instagram's live contract, chosen version and permissions still require verification. No live publishing or account integration test has passed yet. Google offline credential renewal is implemented and wired through account verification, upload and tracking; its live token exchange still needs owner authorization and verified secure bindings. Instagram renewal remains unverified.
 
 Publication requires explicit approval of each rendered job, bound to its bytes, metadata, account and campaign evidence. After the first approved live publication, broader recurring publication consent can be designed around verified platform/campaign rules; it is intentionally not silently granted here. Campaign submissions, approval and payout are never inferred from views.
 
 No cloud subscription, paid generation, paid API, hosting purchase, payout action or publication occurs during installation. Docker files prepare deployment; they do not create a free hosting entitlement or deploy anything. Development environment publication preserves files, not an always-on business worker.
+
+The cloud observation workflow contains a six-hour cron, but scheduled jobs require both `REWARDS_ENABLE_SCHEDULED_DRY_RUN=true` and `REWARDS_FREE_USAGE_CONFIRMED=true` repository variables before runner allocation. Neither variable was enabled by setup. It never binds publishing credentials or exports the private ledger. A successful observation run would establish cloud execution only, not a live business. Its remote execution and free allowance remain unverified while GitHub API access is blocked.

@@ -90,8 +90,10 @@ verification and any project audit must be completed through Google/YouTube.
 Use an OAuth client and consent flow for the actual channel owner. Request
 `youtube.upload` for uploads and the appropriate readonly scope for channel and
 video statistics; supply authorized access tokens through secret configuration.
-Token refresh and account authorization are not faked or automated by the
-adapter. Expired or missing permissions fail safely. Confirm audience
+Google offline token refresh is now implemented by `YouTubeTokenProvider` and
+wired through the workflow's account checks, upload and tracking. Live OAuth
+authorization, refresh and secure form-body delivery remain unverified. Initial
+account-owner consent is never faked. Expired or missing permissions fail safely. Confirm audience
 classification, titles, campaign disclosures, copyright permissions, and channel
 defaults before the first approved upload.
 

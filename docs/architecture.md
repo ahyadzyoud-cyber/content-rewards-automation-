@@ -39,8 +39,13 @@ allows only one worker to claim an approved job, and YouTube uploads use a
 staged copy of the exact approved bytes. Instagram revalidates campaign and job
 approval after container processing before its final publication call.
 
-Production gaps are explicit: verified provider campaign APIs, owner OAuth and
-renewal, live platform contract checks, campaign-specific creative validation,
+`oauth.py` supplies in-memory Google refresh/PKCE helpers; `readiness.py` separates
+configuration from read-only identity evidence and exact-video preflight.
+The cloud observation workflow never loads or exports the private publishing
+database and keeps live publishing disabled, regardless of ambient variables.
+
+Production gaps are explicit: verified provider campaign APIs, owner OAuth,
+live credential renewal (including Instagram), live platform contract checks, campaign-specific creative validation,
 submission/earnings automation, supervised first publication, reconciliation,
 scoped consent for broader autonomous publishing, and a deployed persistent
 cloud host. Tests cover local functionality and mocked transports; they do not

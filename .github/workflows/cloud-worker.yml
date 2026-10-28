@@ -1,0 +1,89 @@
+name: Cloud observation dry run
+
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      confirm_free_usage:
+        description: 'I verified this standard runner run stays within free GitHub Actions usage'
+        type: boolean
+        required: true
+        default: false
+      initialize_state:
+        description: 'First run only: create an empty observation state, never replace an existing ledger'
+        type: boolean
+        default: false
+      previous_run_id:
+        description: 'Optional deliberate recovery: successful cloud-worker run ID on this branch'
+        type: string
+        default: ''
+      public_feed_url:
+        description: 'Optional provider-approved public no-cost normalized HTTPS JSON feed (no credentials)'
+        type: string
+        default: ''
+      confirm_permitted_public_no_cost_feed:
+        description: 'If adding a feed, I verified public redistribution, automation permission and no cost'
+        type: boolean
+        default: false
+
+# Scheduled jobs remain skipped before runner allocation until BOTH non-secret
+# repository variables below are explicitly enabled after free usage is verified.
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: rewards-cloud-observation-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  observe:
+    name: cloud-observation
+    if: >-
+      github.ref_name == github.event.repository.default_branch &&
+      ((github.event_name == 'workflow_dispatch' && inputs.confirm_free_usage == true) ||
+       (github.event_name == 'schedule' &&
+        vars.REWARDS_ENABLE_SCHEDULED_DRY_RUN == 'true' &&
+        vars.REWARDS_FREE_USAGE_CONFIRMED == 'true'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      REWARDS_LIVE_PUBLISHING: 'false'
+      UV_LINK_MODE: copy
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install locked observation dependencies
+        run: |
+          python -m pip install uv==0.12.23
+          uv sync --frozen --no-dev
+      - name: Restore exact prior cloud observation state
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REWARDS_INITIALIZE_STATE: ${{ inputs.initialize_state }}
+          REWARDS_PREVIOUS_RUN_ID: ${{ inputs.previous_run_id }}
+        run: uv run --frozen --no-dev python scripts/cloud_worker.py restore --state-dir "$RUNNER_TEMP/rewards-state"
+      - name: Observe permitted campaigns and rank without publication
+        env:
+          REWARDS_PUBLIC_FEED_URL: ${{ inputs.public_feed_url }}
+          REWARDS_CONFIRM_PUBLIC_FEED: ${{ inputs.confirm_permitted_public_no_cost_feed }}
+        run: uv run --frozen --no-dev python scripts/cloud_worker.py run --state-dir "$RUNNER_TEMP/rewards-state" --output-dir "$RUNNER_TEMP/rewards-output"
+      - name: Persist only public unverified observations
+        uses: actions/upload-artifact@v4
+        with:
+          name: rewards-dry-run-state-v1
+          path: ${{ runner.temp }}/rewards-output/state/state.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Save explicitly non-production report
+        uses: actions/upload-artifact@v4
+        with:
+          name: rewards-dry-run-report-v1
+          path: ${{ runner.temp }}/rewards-output/report/report.json
+          if-no-files-found: error
+          retention-days: 30

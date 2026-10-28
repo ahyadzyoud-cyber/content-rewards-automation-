@@ -20,6 +20,10 @@ def parser() -> argparse.ArgumentParser:
     sub = cli.add_subparsers(dest="command", required=True)
     sub.add_parser("init")
     sub.add_parser("status")
+    sub.add_parser("readiness")
+    sub.add_parser("verify-accounts")
+    check = sub.add_parser("preflight")
+    check.add_argument("job_id")
     imp = sub.add_parser("import-campaigns")
     imp.add_argument("file", type=Path)
     rank = sub.add_parser("rank")
@@ -96,6 +100,15 @@ def execute(args, workflow: Workflow):
         case "status":
             return {"capabilities": workflow.settings.credential_status(), "automatic_spending_usd": 0,
                     "campaigns": len(workflow.store.list("campaign")), "jobs": len(workflow.store.list("job"))}
+        case "readiness":
+            from .readiness import readiness
+            return readiness(workflow)
+        case "verify-accounts":
+            from .readiness import verify_accounts
+            return asyncio.run(verify_accounts(workflow))
+        case "preflight":
+            from .readiness import preflight
+            return preflight(workflow, args.job_id)
         case "import-campaigns":
             records = json.loads(args.file.read_text())
             if not isinstance(records, list):

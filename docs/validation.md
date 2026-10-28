@@ -46,3 +46,38 @@ refresh, and production deployment. Whop Content Rewards and `vyro.com` official
 campaign APIs remain unconfirmed. See `integrations.md` for source evidence and
 observed network blocks. No restricted scraping, paid service activation, real
 publication or earnings claim occurred.
+
+## Continuation validation
+
+The initial 39-file implementation was committed and pushed to GitHub `main` as
+`f80a5a7`. The continuation preserves that project and adds credential lifecycle,
+readiness/preflight and scheduled cloud observation capabilities.
+
+* **275 tests passed**, with no failed or skipped tests, after the continuation.
+  Lint, source/wheel builds, and the isolated real-FFmpeg CLI demo passed.
+* Google refresh tests cover expiry, concurrent refresh, token invalidation,
+  PKCE/state consent and sanitized failures. A mocked integrated account-check,
+  approved upload and metrics sequence reused one renewed token without storing
+  credentials. These are protocol tests, not a live Google authorization claim.
+* Real HTTP startup verified authenticated readiness reporting and blocked
+  account checks with missing credentials. The report correctly returned zero
+  real campaigns and `business_live=false`.
+* The updated Docker image rebuilt successfully and passed its offline non-root
+  synthetic video demo. Native and container checks remain development evidence.
+* The cloud helper executed two successive local observation runs, restoring its
+  validated checkpoint between them and reaching sequence two. Without a
+  permitted feed it reported `blocked_no_permitted_feed`, with no publication
+  and `production_verified=false`. Artifact metadata/history failure cases and
+  skipped-job handling were tested with a fake GitHub API.
+* The six-hour GitHub cron is implemented behind two repository-variable gates.
+  Setup did not enable those variables or dispatch a remote cloud job. Repository
+  visibility, free allowance, remote CI outcome and production execution could
+  not be checked because GitHub API requests remain Forbidden at the proxy.
+* Public Whop/Content Rewards/Vyro requests remain blocked. An accessible official
+  Whop SDK describes paid ad campaigns, not an applicable creator rewards API.
+  No real campaign or Jordan eligibility recommendation was invented.
+
+The draft adds `api.github.com`, `whop.com` and `www.whop.com`, plus secure Google
+refresh-token/client-secret requirements and public client-ID metadata. The
+settings still need the product's save/publish action to apply; no secret values
+were supplied, and no paid activation or real publication was performed.

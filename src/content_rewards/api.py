@@ -77,6 +77,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def rankings(platform: Literal["youtube", "instagram"] | None = None):
         return workflow.rank(platform)
 
+    @app.get("/readiness", dependencies=protected)
+    def readiness_report():
+        from .readiness import readiness
+        return readiness(workflow)
+
+    @app.post("/accounts/verify", dependencies=protected)
+    async def verify_account_identities():
+        from .readiness import verify_accounts
+        return await verify_accounts(workflow)
+
     @app.get("/jobs", dependencies=protected)
     def jobs():
         return workflow.store.list("job")
@@ -93,6 +103,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def publish(job_id: str):
         # Approval deliberately comes from an explicit local operator review.
         return await workflow.publish(job_id)
+
+    @app.get("/jobs/{job_id}/preflight", dependencies=protected)
+    def preflight_report(job_id: str):
+        from .readiness import preflight
+        return preflight(workflow, job_id)
 
     @app.post("/jobs/{job_id}/metrics", dependencies=protected)
     async def metrics(job_id: str):

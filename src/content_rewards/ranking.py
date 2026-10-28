@@ -71,6 +71,8 @@ def rank_campaigns(
             blockers.append("No campaign-approved materials were supplied")
         if not campaign.active:
             blockers.append("Campaign is inactive")
+        if campaign.expires_at is not None and campaign.expires_at <= clock:
+            blockers.append("Campaign deadline has expired")
         if campaign.remaining_budget_usd <= 0:
             blockers.append("Campaign has no remaining budget")
         if campaign.rate_per_1000_views_usd <= 0:

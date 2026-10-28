@@ -37,10 +37,13 @@ Do not treat the development snapshot as a production backup or an always-on hos
    Run the explicit approval command only after that review. Set
    `REWARDS_LIVE_PUBLISHING=true` only when ready for authorized external writes.
 
-Do not send tokens in chat. The environment draft declares the two API token
-requirements and non-secret account/version/hosting settings. Token values are
-entered securely. Existing bindings should be reused. Short-lived access tokens
-must be renewed; refresh and initial OAuth consent are not automated yet.
+Do not send tokens in chat. The environment draft declares API token and Google
+offline credential requirements plus non-secret account/version/hosting settings.
+Token values are entered securely, reusing existing bindings. Google offline
+refresh is now implemented and wired into the worker; it still needs a verified
+live owner grant and secure form-body bindings. Initial OAuth consent is
+owner-operated, and Instagram renewal remains unverified. See
+`account-authorization.md` for exact fields.
 
 ## Import and prepare
 

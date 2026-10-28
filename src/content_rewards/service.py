@@ -33,6 +33,7 @@ class Workflow:
     def __init__(self, settings: Settings | None = None):
         self.settings = settings or Settings()
         self.store = Store(self.settings.database)
+        self._youtube_tokens = None
 
     def import_campaigns(self, records: list[dict], *, untrusted_feed: bool = False) -> int:
         # Validate the entire batch before writing anything.
@@ -44,6 +45,7 @@ class Workflow:
                 campaign.eligibility_verified = False
                 campaign.requirements_verified = False
                 campaign.rights_verified = False
+                campaign.payout_eligibility_verified = False
                 campaign.evidence_checked_at = None
             self.store.put("campaign", campaign.id, campaign.model_dump(mode="json"))
         self.store.event("campaign_import", "batch", {"count": len(campaigns), "untrusted_feed": untrusted_feed})
@@ -189,9 +191,18 @@ class Workflow:
     async def _publisher(self, platform: str):
         from .integrations import InstagramPublisher, YouTubePublisher
         if platform == "youtube":
-            if not self.settings.youtube_token or not self.settings.youtube_channel_id:
+            if not self.settings.credential_status()["youtube"]:
                 raise Blocked("Authorize YouTube and configure its verified channel ID in environment settings")
-            return YouTubePublisher(self.settings.youtube_token, privacy_status="public")
+            from .oauth import StaticTokenProvider, YouTubeTokenProvider
+            if self._youtube_tokens is None:
+                if self.settings.youtube_refresh_configured():
+                    self._youtube_tokens = YouTubeTokenProvider(self.settings.google_client_id,
+                                                               self.settings.google_client_secret,
+                                                               self.settings.youtube_refresh_token)
+                else:
+                    self._youtube_tokens = StaticTokenProvider(self.settings.youtube_token)
+            token = await self._youtube_tokens.get_access_token()
+            return YouTubePublisher(token, privacy_status="public", token_provider=self._youtube_tokens)
         if not all((self.settings.instagram_token, self.settings.instagram_account_id, self.settings.instagram_api_version)):
             raise Blocked("Authorize an eligible Instagram professional account and configure API version")
         return InstagramPublisher(self.settings.instagram_token, self.settings.instagram_account_id,

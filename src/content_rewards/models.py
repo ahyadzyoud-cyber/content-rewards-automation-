@@ -16,7 +16,10 @@ class Campaign(BaseModel):
 
     Verification flags describe evidence supplied by the operator or an authorized
     provider. They are never inferred from campaign names, domains, or geography.
-    Empty country/platform lists and ``allows_new_accounts=None`` mean unknown.
+    ``eligible_countries`` always means creator residency, never audience
+    geography. Audience restrictions are recorded separately. Empty country/
+    platform lists and ``allows_new_accounts=None`` mean unknown. Payout flags
+    record operator evidence; they do not verify payment-provider account setup.
     """
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
@@ -28,18 +31,28 @@ class Campaign(BaseModel):
     rate_per_1000_views_usd: NonNegativeMoney
     remaining_budget_usd: NonNegativeMoney
     competition_entries: Annotated[int, Field(ge=0, le=2**63 - 1, strict=True)] | None = None
-    eligible_countries: list[str] = Field(default_factory=list)
+    eligible_countries: list[str] = Field(
+        default_factory=list, description="Explicitly permitted creator-residency country codes",
+    )
+    audience_country_requirements: list[str] = Field(
+        default_factory=list, description="Known audience-location restrictions; empty does not verify unrestricted audience",
+    )
     eligibility_verified: bool = False
     eligibility_evidence: str = ""
     allowed_platforms: list[Platform] = Field(default_factory=list)
     allows_new_accounts: bool | None = None
     minimum_followers: Annotated[int, Field(ge=0, le=2**63 - 1, strict=True)] = 0
+    qualifying_views_terms: str = ""
+    maximum_reward_per_video_usd: NonNegativeMoney | None = None
+    payout_eligibility_verified: bool = False
+    payout_evidence: str = ""
     requirements: list[NonEmptyText] = Field(default_factory=list)
     requirements_verified: bool = False
     rights_verified: bool = False
     materials: list[NonEmptyText] = Field(default_factory=list)
     active: bool = True
     evidence_checked_at: datetime | None = None
+    expires_at: datetime | None = None
 
     @field_validator("source_url")
     @classmethod
@@ -50,14 +63,14 @@ class Campaign(BaseModel):
             raise ValueError("source_url must not contain credentials")
         return value
 
-    @field_validator("eligible_countries")
+    @field_validator("eligible_countries", "audience_country_requirements")
     @classmethod
     def normalize_countries(cls, values: list[str]) -> list[str]:
         countries = []
         for value in values:
             country = value.strip().upper()
             if len(country) != 2 or not country.isascii() or not country.isalpha():
-                raise ValueError("eligible_countries must contain two-letter country codes")
+                raise ValueError("Country lists must contain two-letter country codes")
             if country not in countries:
                 countries.append(country)
         return countries
@@ -67,11 +80,11 @@ class Campaign(BaseModel):
     def unique_platforms(cls, values: list[Platform]) -> list[Platform]:
         return list(dict.fromkeys(values))
 
-    @field_validator("evidence_checked_at")
+    @field_validator("evidence_checked_at", "expires_at")
     @classmethod
     def require_timezone(cls, value: datetime | None) -> datetime | None:
         if value is not None and (value.tzinfo is None or value.utcoffset() is None):
-            raise ValueError("evidence_checked_at must include a timezone")
+            raise ValueError("Campaign timestamps must include a timezone")
         return value
 
 

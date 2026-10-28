@@ -66,11 +66,12 @@ def _identifier(value: str) -> str:
 class _Adapter:
     provider = "provider"
 
-    def __init__(self, access_token: str, client: httpx.AsyncClient | None = None):
+    def __init__(self, access_token: str, client: httpx.AsyncClient | None = None, *, token_provider=None):
         if not access_token or not access_token.strip() or "\n" in access_token or "\r" in access_token:
             raise IntegrationError("An authorized access token is required")
         self._access_token = access_token
         self._http = client
+        self._token_provider = token_provider
 
     @asynccontextmanager
     async def _client(self):
@@ -82,13 +83,17 @@ class _Adapter:
 
     async def _request(self, method: str, url: str, *, indeterminate: bool = False, **kwargs) -> httpx.Response:
         headers = dict(kwargs.pop("headers", {}))
-        headers["Authorization"] = "Bearer " + self._access_token
+        token = await self._token_provider.get_access_token() if self._token_provider else self._access_token
+        headers["Authorization"] = "Bearer " + token
         try:
             async with self._client() as client:
                 response = await client.request(method, url, headers=headers, follow_redirects=False, **kwargs)
         except httpx.HTTPError:
             error = IndeterminatePublishError if indeterminate else IntegrationError
             raise error(f"{self.provider} request failed; {'reconcile before retrying' if indeterminate else 'check connectivity and authorization'}") from None
+        if response.status_code == 401 and self._token_provider and hasattr(self._token_provider, "invalidate"):
+            # Renewal happens on the next operation. Never replay a publication write.
+            self._token_provider.invalidate()
         if response.status_code >= 500 and indeterminate:
             raise IndeterminatePublishError(f"{self.provider} returned HTTP {response.status_code}; reconcile before retrying")
         if not 200 <= response.status_code < 300:
@@ -119,8 +124,8 @@ class YouTubePublisher(_Adapter):
     provider = "YouTube"
     api_base = "https://www.googleapis.com/youtube/v3"
 
-    def __init__(self, access_token: str, client: httpx.AsyncClient | None = None, *, privacy_status: Literal["private", "unlisted", "public"] = "private"):
-        super().__init__(access_token, client)
+    def __init__(self, access_token: str, client: httpx.AsyncClient | None = None, *, privacy_status: Literal["private", "unlisted", "public"] = "private", token_provider=None):
+        super().__init__(access_token, client, token_provider=token_provider)
         if privacy_status not in ("private", "unlisted", "public"):
             raise IntegrationError("Invalid YouTube privacy status")
         self.privacy_status = privacy_status
@@ -278,7 +283,8 @@ class EvidenceFeed:
             data = data.get("campaigns")
         if not isinstance(data, list) or len(data) > 1000 or any(not isinstance(item, dict) for item in data):
             raise IntegrationError("Campaign feed must contain at most 1000 campaign objects")
-        return [dict(item, eligibility_verified=False, requirements_verified=False, rights_verified=False, evidence_checked_at=None) for item in data]
+        return [dict(item, eligibility_verified=False, requirements_verified=False, rights_verified=False,
+                     payout_eligibility_verified=False, evidence_checked_at=None) for item in data]
 
     @asynccontextmanager
     async def _client(self):

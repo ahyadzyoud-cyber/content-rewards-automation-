@@ -120,3 +120,51 @@ def test_invalid_query_inputs_rejected():
         rank_campaigns([], country="Jordan")
     with pytest.raises(ValueError):
         rank_campaigns([], now=NOW.replace(tzinfo=None))
+
+
+def test_known_expired_deadline_blocks_but_unknown_deadline_remains_draft_eligible():
+    unknown = candidate(expires_at=None)
+    future = candidate(id="future", expires_at=NOW + timedelta(seconds=1))
+    expired = candidate(id="expired", expires_at=NOW - timedelta(seconds=1))
+    boundary = candidate(id="boundary", expires_at=NOW)
+    by_id = {score.campaign_id: score for score in rank_campaigns([unknown, future, expired, boundary], now=NOW)}
+    assert by_id["approved"].selectable
+    assert by_id["future"].selectable
+    for campaign_id in ("expired", "boundary"):
+        assert not by_id[campaign_id].selectable
+        assert "Campaign deadline has expired" in by_id[campaign_id].blockers
+
+
+def test_creator_residency_is_distinct_from_audience_geography_and_payout_evidence():
+    campaign = candidate(eligible_countries=["jo"], audience_country_requirements=["us", "US"],
+                         qualifying_views_terms="US organic views only; first 30 days",
+                         maximum_reward_per_video_usd=100, payout_eligibility_verified=True,
+                         payout_evidence="Provider account evidence supports Jordan payout")
+    assert campaign.eligible_countries == ["JO"]
+    assert campaign.audience_country_requirements == ["US"]
+    assert campaign.maximum_reward_per_video_usd == 100
+    assert campaign.payout_eligibility_verified
+    assert rank_campaigns([campaign], country="JO", now=NOW)[0].selectable
+    assert not rank_campaigns([campaign], country="US", now=NOW)[0].selectable
+
+
+@pytest.mark.parametrize("updates", [
+    {"expires_at": NOW.replace(tzinfo=None)},
+    {"maximum_reward_per_video_usd": -1},
+    {"maximum_reward_per_video_usd": float("nan")},
+    {"maximum_reward_per_video_usd": float("inf")},
+    {"audience_country_requirements": ["United States"]},
+])
+def test_new_business_terms_reject_invalid_dates_countries_and_reward_caps(updates):
+    with pytest.raises(ValidationError):
+        candidate(**updates)
+
+
+def test_new_terms_remain_unknown_for_existing_records_instead_of_being_invented():
+    campaign = candidate()
+    assert campaign.expires_at is None
+    assert campaign.maximum_reward_per_video_usd is None
+    assert campaign.qualifying_views_terms == ""
+    assert campaign.audience_country_requirements == []
+    assert not campaign.payout_eligibility_verified
+    assert campaign.payout_evidence == ""
