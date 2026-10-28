@@ -1,5 +1,25 @@
 # Free public cloud observer
 
+## Verified cloud execution
+
+The repository was verified public through GitHub's API. GitHub's
+[official billing documentation source](https://github.com/github/docs/blob/main/content/billing/concepts/product-billing/github-actions.md)
+confirms that standard hosted runners are free for public repositories and that
+logs/job summaries do not consume artifact storage. This workflow allocates no
+artifact/cache storage and never selects a larger paid runner.
+
+Two actual runs passed:
+
+* [Initialization: run 40767661130](https://github.com/ahyadzyoud-cyber/content-rewards-automation-/actions/runs/40767661130)
+  created sequence 1 on `rewards-observation-state`.
+* [Restoration: run 40767922065](https://github.com/ahyadzyoud-cyber/content-rewards-automation-/actions/runs/40767922065)
+  restored that checkpoint and saved sequence 2 with the first run as predecessor.
+
+The inspected report says `blocked_no_permitted_feed`, `live_publishing=false`
+and `production_verified=false`. GitHub reports zero workflow artifacts.
+The recurring event is configured; its next scheduled execution has not yet
+been observed. These completed runs were explicitly dispatched cloud checks.
+
 The existing project includes an observation workflow that runs on GitHub while
 the owner's computer is off. `.github/workflows/free-observer.yml` uses a
 standard `ubuntu-latest` runner only while the repository is public. The public

@@ -1,55 +1,87 @@
-# Owner participation required
+# Owner participation required after publication
 
-Current evidence: the source implementation is pushed to GitHub; local and
-container development/dry-run checks pass. No real campaign has been retrieved,
-no social account is connected, no real video has been prepared or published,
-and production execution/tracking are unverified. The business is not live.
+The existing cloud environment has been published. Its new active version and
+live network access were verified. `REWARDS_LIVE_PUBLISHING` is configured and
+remains disabled. The old proxy-blocked instructions are superseded; no new
+environment, project rebuild or repeat of earlier local test suites is needed.
 
-These are the owner-only steps; automated implementation and checks continue
-without asking for passwords or secret values in chat.
+## Whop creator consent
 
-1. **Apply the cloud access settings.** Review/save the prepared environment
-   settings and publish the environment. The available configuration tool saves
-   a draft but cannot apply it or publish the snapshot. Current proxy requests to
-   campaign sites and GitHub's API still return Forbidden. The draft includes
-   `whop.com`, `www.whop.com`, `docs.whop.com`, `vyro.com`, `api.github.com`, Google
-   OAuth/YouTube and Meta API/documentation destinations. Once applied, the agent
-   can retry provider discovery, GitHub visibility/free-usage checks and cloud
-   workflow dispatch. A raw Git push already works and does not establish these
-   separate API permissions.
-2. **Authorize the target social accounts securely.** For Google, authorize the
-   owner-controlled YouTube channel for upload/readonly scopes and offline
-   access, then configure `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
-   `YOUTUBE_REFRESH_TOKEN` and `YOUTUBE_CHANNEL_ID` in secure settings. An existing
-   access token is optional for short-lived testing. For Instagram, authorize a
-   professional account with the actual Meta app's publishing/insights access;
-   configure `INSTAGRAM_ACCESS_TOKEN`, `INSTAGRAM_ACCOUNT_ID` and the verified
-   `INSTAGRAM_API_VERSION`. Complete required channel/app/account verification.
-   Do not enable billing or purchase API quota. See `account-authorization.md`.
-3. **Complete campaign account and payout verification.** In Whop Content Rewards
-   and `vyro.com`, verify that a creator residing in Jordan can join the actual
-   campaign and receive payouts, and finish required identity/payout setup on
-   the official platform. Make provider-approved campaign terms/export/feed and
-   approved material access available through its permitted route. No restricted
-   scraping or unverified private endpoint will be used. Jordan audience targets
-   alone do not prove Jordan creator or payout eligibility. No real best campaign
-   can be selected until this evidence exists. See `campaign-access.md`.
-4. **Authorize existing free hosting and execution where needed.** Instagram
-   requires an approved immutable HTTPS video host and permission to host the
-   campaign footage. No service was purchased or provisioned. GitHub scheduling
-   stays behind its two opt-in gates until standard-runner/free allowance,
-   artifact storage and spending controls are verified. After API access works,
-   the agent can inspect and configure this within the authorized free scope;
-   paid capacity still requires separate owner permission. See
-   `cloud-deployment.md`.
-5. **Approve the first real video when it exists.** The agent will prepare the
-   highest-ranked verified candidate and produce a preflight packet containing
-   the exact video hash, title/caption, campaign terms and remaining blockers.
-   Review the real video and target account before the explicit approval command.
-   There is currently no real campaign/video to approve; the synthetic demo is
-   not presented as one. Keep `REWARDS_LIVE_PUBLISHING=false` until that review.
+A real official clipping/UGC bounty discovery adapter is available:
 
-Read-only connection checks: `uv run --frozen rewards verify-accounts`.
-Evidence report: `uv run --frozen rewards readiness`.
-Real prepared job review: `uv run --frozen rewards preflight JOB_ID`.
-None of these commands approves a publication or initiates a payout.
+```bash
+rewards discover-whop --country JO --goal clipping
+```
+
+It needs an owner-authorized **user OAuth** grant with `bounty:basic:read`, not
+an account API key with different visibility. Use an existing trusted Whop app
+and registered callback/PKCE flow, following the exact official dashboard steps
+in [live Whop findings](live-whop-findings.md). No credentials, callback codes or
+passwords belong in chat. If no trusted OAuth client/callback exists yet, that
+account-owned app registration and secure token-store path must be established
+before creator consent; the repository does not pretend to provide one.
+
+The new API host `api.whop.com` was discovered in the now-accessible official
+docs. A narrowly scoped network addition and **optional personal**
+`WHOP_ACCESS_TOKEN` requirement were saved to the existing environment draft.
+Review/save that addition with the eventual secure credential configuration,
+then publish the updated environment. Existing published site access already
+works; this addition is specifically for the authenticated API host. No prior
+required social credential declarations were reintroduced.
+
+Whop's public payout guide explicitly includes Jordan, but the owner must still
+complete identity/payout onboarding and verify the actual method shown in the
+account. The bounty country filter is creator residency. New-account acceptance,
+material rights and campaign-specific requirements still need actual evidence.
+Bounties pay fixed rewards and are not silently ranked as CPM Content Rewards.
+
+Whop access tokens last one hour and refresh tokens rotate; a trusted callback
+and secure durable renewal store are still needed for unattended discovery.
+A short-lived personal access token enables a read-only live test only.
+
+## Social account consent
+
+Authorize the actual YouTube channel for upload, readonly and offline access,
+then place its Google client ID, client secret, refresh token and channel ID in
+secure environment settings. See [account authorization](account-authorization.md).
+
+For Instagram, use the Meta app's **Instagram > API setup with Instagram
+business login > Generate token** flow for the target professional account.
+Configure `INSTAGRAM_ACCESS_TOKEN`, its professional `user_id` as
+`INSTAGRAM_ACCOUNT_ID`, and the app-supported `INSTAGRAM_API_VERSION`.
+Current official examples use `v26.0`; the chosen app and grants must still be
+verified. See [current Meta instructions](instagram-authorization-current.md).
+The corrected identity probe uses `/me` and distinguishes professional `user_id`
+from app-scoped `id`. Secure renewal and approved immutable media hosting remain
+operational prerequisites for continuous Instagram use.
+
+## Vyro account and automation permission
+
+Real public listings are documented in [live Vyro findings](live-vyro-findings.md).
+The displayed-rate research shortlist begins with Total Drama Roblox offers at
+$2.50 per 1,000 views, then Joy 101 at $2.00. No candidate is verified suitable
+for a new Jordan-based creator: actual briefs, budget, account admission,
+payout access and material rights remain unknown. Three public listings are
+locked for new posts and must not be treated as open opportunities.
+
+Vyro's terms prohibit unauthorized automated collection, and its content rules
+also mention automated posting in prohibited spam promotion. Obtain a
+provider-approved API/feed/export and confirmation that this specific workflow
+and official social API scheduling are allowed. Complete creator/social linking
+and actual Jordan payout verification inside the official account. A public
+marketing rate or a personal social API grant is not permission from Vyro.
+
+## Cloud operation and first video
+
+The free observer reuses the existing worker on standard public GitHub runners
+and persists only public observations in a small separate Git branch. It needs
+no paid artifact storage, repository-variable permission, social tokens, or
+computer left on. See [free observer](free-cloud-observer.md) for execution
+proof and scheduling limits. It correctly reports blocked discovery until a
+permitted source is configured, and it never publishes or handles a private
+financial ledger.
+
+Once account/provider permissions, real eligible terms and approved footage
+exist, the agent can prepare the first actual video and its preflight packet.
+Only then is owner publication approval requested. Until that review,
+`REWARDS_LIVE_PUBLISHING=false` and `business_live=false` remain correct.

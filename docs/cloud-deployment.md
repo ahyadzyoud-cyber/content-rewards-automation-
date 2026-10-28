@@ -1,5 +1,11 @@
 # Cloud execution without the owner's computer
 
+The preferred current path is the [free public Git-backed observer](free-cloud-observer.md).
+It has passed two real cloud runs and checkpoint restoration without Actions
+artifact storage or repository-variable permissions. The instructions below
+describe the retained artifact-based alternative; its activation gates remain
+unchanged and it was not activated here.
+
 The existing Docker worker is suitable for an already authorized persistent
 host. No hosting plan, paid subscription or cloud account has been activated.
 The repository also includes a **GitHub Actions observation dry run with a

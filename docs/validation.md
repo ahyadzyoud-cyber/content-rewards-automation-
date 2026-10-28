@@ -81,3 +81,36 @@ The draft adds `api.github.com`, `whop.com` and `www.whop.com`, plus secure Goog
 refresh-token/client-secret requirements and public client-ID metadata. The
 settings still need the product's save/publish action to apply; no secret values
 were supplied, and no paid activation or real publication was performed.
+
+## Post-publication verification
+
+The environment was published successfully. The active configuration version
+changed, there was initially no editable draft, its site/API egress rules were
+present, and `REWARDS_LIVE_PUBLISHING` was injected with publishing disabled.
+Whop public documentation, Vyro public pages and GitHub's API now respond.
+Old proxy failures above are historical rather than the current access state.
+
+Only affected/new checks were run locally: 33 Whop adapter cases, 16 provider
+permission/Whop workflow cases, 20 current Meta identity cases and 20 Git-backed
+checkpoint cases. No application rebuild or rerun of the old full local suite
+was needed. The updated commit's [cloud CI run passed](https://github.com/ahyadzyoud-cyber/content-rewards-automation-/actions/runs/40767631297).
+
+Official Whop docs now establish a user-OAuth clipping-bounty route, separate
+from CPM rewards, and general Jordan payout-country support. Public Vyro offers
+were recorded as unverified research, with actual rates and unknown budgets.
+Both providers' automation restrictions were documented. Provider campaigns
+now require explicit automation authorization/evidence, and untrusted feeds
+cannot grant it. No record was falsely marked eligible or published.
+
+The public GitHub free-observer workflow was dispatched twice. Runs
+40767661130 and 40767922065 succeeded, and the remote checkpoint report reached
+sequence 2 with `previous_run_id=40767661130`. No Actions artifacts were created;
+the scheduled workflow uses standard public runners and a small public Git
+checkpoint. It does not receive social credentials, export the private ledger,
+scrape websites, or publish. The first actual cron execution remains pending.
+
+Actual campaign-qualified discovery, social authorization, approved video,
+production publishing and earnings remain unverified. The newly documented
+`api.whop.com` destination and optional personal Whop grant are staged separately
+in the existing environment draft. This does not undo the successful original
+publication or make social credentials prerequisites for development setup.

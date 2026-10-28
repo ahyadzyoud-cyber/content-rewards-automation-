@@ -17,12 +17,12 @@ Provider campaigns cannot become selectable until their actual automated workflo
 
 | Phase | Implemented and tested | External prerequisite |
 | --- | --- | --- |
-| Environment | Python 3.12, locked dependencies, SQLite, CLI, authenticated API, CI | Publish the cloud environment snapshot for future tasks |
-| Discovery and analysis | Normalized JSON imports, permitted HTTPS feeds, explained scores out of 10 | Whop Content Rewards / `vyro.com` official API or permitted export/feed access |
+| Environment | Published Python 3.12 environment, locked dependencies, SQLite, CLI, authenticated API, passing cloud CI | Optional new Whop API destination/creator consent |
+| Discovery and analysis | Official Whop fixed-bounty reader, normalized imports, permitted feeds, explained CPM scores | Creator OAuth; CPM/Vyro source permission and verified campaign terms |
 | Selection and editing | New-account/Jordan gates; choose best eligible campaign; approved local footage to portrait H264/AAC MP4 | Actual campaign terms, rights, fresh budget and eligibility evidence |
 | Publishing | YouTube refresh-token renewal and resumable upload; Instagram container/status/publish; exact media approval; duplicate-write barriers | Owner OAuth, platform permissions, verified target IDs, first-publication review; Instagram immutable hosting and renewal verification |
 | Tracking | Provider view snapshots, submission/approval/payment evidence ledger | Provider campaign submission/earnings API remains unverified; ledger entries are operator-recorded |
-| Recurrence | Durable local worker, Docker services, six-hour GitHub cloud observation workflow behind opt-in gates | Verified free usage and enabled schedule; live publishing still requires a durable production host/ledger |
+| Recurrence | Two verified GitHub cloud observer runs with Git checkpoint restore; six-hour schedule | Permitted data; live business still requires authorized publishing and a private production ledger |
 
 See [validation results](docs/validation.md), [campaign access](docs/campaign-access.md), [account authorization](docs/account-authorization.md), [cloud execution](docs/cloud-deployment.md), and [owner actions](docs/next-actions.md).
 
@@ -78,7 +78,7 @@ Selection separately requires explicit Jordan (`JO`) creator-residency eligibili
 
 ## Operating limits
 
-Whop Content Rewards and Vyro campaign APIs have **not** been confirmed. No restricted scraping or undocumented endpoints are used. An official Whop advertising campaign API is not treated as a creator rewards API. Vyro means [vyro.com](https://vyro.com/).
+The official Whop clipping/UGC **bounty** read API is now documented and implemented, with fixed rewards distinct from CPM Content Rewards. A CPM Content Rewards discovery/submission API and a Vyro third-party campaign API remain unverified. No restricted scraping or undocumented endpoints are used. Vyro means [vyro.com](https://vyro.com/).
 
 The transport adapters are mock-tested. Google upload methods were checked against Google's official discovery definition. Instagram's live contract, chosen version and permissions still require verification. No live publishing or account integration test has passed yet. Google offline credential renewal is implemented and wired through account verification, upload and tracking; its live token exchange still needs owner authorization and verified secure bindings. Instagram renewal remains unverified.
 
@@ -86,4 +86,4 @@ Publication requires explicit approval of each rendered job, bound to its bytes,
 
 No cloud subscription, paid generation, paid API, hosting purchase, payout action or publication occurs during installation. Docker files prepare deployment; they do not create a free hosting entitlement or deploy anything. Development environment publication preserves files, not an always-on business worker.
 
-The cloud observation workflow contains a six-hour cron, but scheduled jobs require both `REWARDS_ENABLE_SCHEDULED_DRY_RUN=true` and `REWARDS_FREE_USAGE_CONFIRMED=true` repository variables before runner allocation. Neither variable was enabled by setup. It never binds publishing credentials or exports the private ledger. A successful observation run would establish cloud execution only, not a live business. Its remote execution and free allowance remain unverified while GitHub API access is blocked.
+The preferred [free public observer](docs/free-cloud-observer.md) runs on standard public GitHub runners every six hours. Two actual runs passed, including checkpoint restoration into sequence 2. It uses a small public Git branch instead of billed artifact storage or privileged variable APIs. With no permitted feed configured, it reports that blocker and keeps publication/production verification false. This verifies cloud execution and state persistence, not a live business. The older artifact-based workflow remains behind its original opt-in gates and is not activated by this setup.
