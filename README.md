@@ -2,7 +2,16 @@
 
 Automated cloud-based system for discovering campaigns on Whop and Vyro, creating short videos, publishing to YouTube Shorts and Instagram Reels, and tracking earnings.
 
-This repository now contains a working development foundation. **It is not a live income-generating business yet.** No real account is connected, no real campaign eligibility or payout is verified, no video has been published, and no paid service is enabled.
+This repository contains a published development environment and a working development foundation. **It is not a live income-generating business yet.** No real social account is connected, no campaign eligibility or account payout is verified, no video has been published, and no paid plan is enabled.
+
+Public provider access now works. Read [current Whop findings](docs/live-whop-findings.md), [real Vyro listings and restrictions](docs/live-vyro-findings.md), and [current Meta authorization](docs/instagram-authorization-current.md). Vyro's highest observed advertised rate is $2.50 per 1,000 views for four Total Drama Roblox offers; none is verified eligible for a new creator in Jordan. Whop's official fixed-reward clipping bounty API is implemented separately from CPM rewards:
+
+```bash
+# Requires owner OAuth and the approved api.whop.com destination; never send a token in chat.
+rewards discover-whop --country JO --goal clipping
+```
+
+Provider campaigns cannot become selectable until their actual automated workflow has explicit authorization and evidence (`automation_authorized` and `automation_evidence`). Official API access does not establish campaign-specific posting, rights or payout permission. No recurring website scraper is included.
 
 ## Implemented phases
 

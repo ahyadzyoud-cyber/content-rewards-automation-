@@ -131,6 +131,7 @@ def preflight(workflow: Workflow, job_id: str) -> dict:
             "qualifying_views_terms": campaign.get("qualifying_views_terms", ""),
             "maximum_reward_per_video_usd": campaign.get("maximum_reward_per_video_usd"),
             "audience_country_requirements": campaign.get("audience_country_requirements", []),
+            "automation_operator_attested": bool(campaign.get("automation_authorized") and campaign.get("automation_evidence")),
             "requirements_to_review": campaign.get("requirements", []), "blockers": blockers,
             "external_writes": False, "approved_by_this_check": False,
             "campaign_submission_verified": False, "payout_verified": False,

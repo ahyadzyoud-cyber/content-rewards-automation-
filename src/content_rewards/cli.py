@@ -53,6 +53,10 @@ def parser() -> argparse.ArgumentParser:
     feed.add_argument("url")
     feed.add_argument("--confirm-permitted-no-cost", action="store_true", required=True)
     sub.add_parser("discover")
+    whop = sub.add_parser("discover-whop")
+    whop.add_argument("--country", default="JO")
+    whop.add_argument("--goal", choices=["clipping", "ugc_content"], default="clipping")
+    whop.add_argument("--max-pages", type=int, default=5)
     sub.add_parser("schedules")
     cancel = sub.add_parser("cancel-schedule")
     cancel.add_argument("id")
@@ -139,6 +143,8 @@ def execute(args, workflow: Workflow):
             return record
         case "discover":
             return asyncio.run(workflow.discover())
+        case "discover-whop":
+            return asyncio.run(workflow.discover_whop(args.country, args.goal, args.max_pages))
         case "schedules":
             return workflow.store.schedules()
         case "cancel-schedule":

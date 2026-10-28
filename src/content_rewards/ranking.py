@@ -67,6 +67,10 @@ def rank_campaigns(
             blockers.append("Campaign requirements have not been verified")
         if not campaign.rights_verified:
             blockers.append("Rights to campaign materials have not been verified")
+        if campaign.source in {"whop", "content_rewards", "vyro"} and (
+            not campaign.automation_authorized or not campaign.automation_evidence.strip()
+        ):
+            blockers.append("Provider authorization for this automated workflow has not been verified")
         if not campaign.materials:
             blockers.append("No campaign-approved materials were supplied")
         if not campaign.active:

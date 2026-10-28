@@ -202,13 +202,24 @@ class InstagramPublisher(_Adapter):
         self.api_base = "https://graph.instagram.com/" + api_version
 
     async def verify_account(self) -> dict:
-        response = await self._request("GET", self.api_base + "/" + self.account_id, params={"fields": "id,username,account_type"})
+        # Instagram Login's `id` is app-scoped; `user_id` identifies the
+        # professional publishing account. /me binds the response to this token.
+        response = await self._request("GET", self.api_base + "/me", params={"fields": "user_id,username,account_type"})
         result = self._json(response)
-        if str(result.get("id", "")) != self.account_id:
+        if "data" in result:
+            accounts = result["data"]
+            if not isinstance(accounts, list) or len(accounts) != 1 or not isinstance(accounts[0], dict):
+                raise IntegrationError("Instagram authorization did not identify one professional account")
+            result = accounts[0]
+        user_id = result.get("user_id")
+        if (isinstance(user_id, bool) or not isinstance(user_id, (str, int))
+                or str(user_id) != self.account_id):
             raise IntegrationError("Instagram authorization did not match the configured account")
-        if result.get("account_type") not in ("BUSINESS", "MEDIA_CREATOR", "CREATOR"):
+        account_type = result.get("account_type")
+        if not isinstance(account_type, str) or account_type.upper() not in ("BUSINESS", "MEDIA_CREATOR"):
             raise IntegrationError("Instagram publishing requires a professional account")
-        return result
+        return {"id": str(user_id), "user_id": str(user_id), "username": result.get("username"),
+                "account_type": account_type.upper()}
 
     async def create_container(self, video_url: str, caption: str) -> str:
         _https_url(video_url)
@@ -284,7 +295,7 @@ class EvidenceFeed:
         if not isinstance(data, list) or len(data) > 1000 or any(not isinstance(item, dict) for item in data):
             raise IntegrationError("Campaign feed must contain at most 1000 campaign objects")
         return [dict(item, eligibility_verified=False, requirements_verified=False, rights_verified=False,
-                     payout_eligibility_verified=False, evidence_checked_at=None) for item in data]
+                     payout_eligibility_verified=False, automation_authorized=False, evidence_checked_at=None) for item in data]
 
     @asynccontextmanager
     async def _client(self):

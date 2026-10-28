@@ -46,6 +46,7 @@ class Workflow:
                 campaign.requirements_verified = False
                 campaign.rights_verified = False
                 campaign.payout_eligibility_verified = False
+                campaign.automation_authorized = False
                 campaign.evidence_checked_at = None
             self.store.put("campaign", campaign.id, campaign.model_dump(mode="json"))
         self.store.event("campaign_import", "batch", {"count": len(campaigns), "untrusted_feed": untrusted_feed})
@@ -324,6 +325,28 @@ class Workflow:
             count = self.import_campaigns(records, untrusted_feed=True)
             results.append({"feed_id": feed["id"], "imported": count})
         return {"feeds": results}
+
+    async def discover_whop(self, country: str = "JO", goal: str = "clipping", max_pages: int = 5) -> dict:
+        """Read official creator-visible fixed rewards without importing them as CPM work."""
+        from .whop import WhopBounties
+        if not self.settings.whop_token:
+            raise Blocked("Authorize a creator Whop OAuth token with bounty:basic:read in secure WHOP_ACCESS_TOKEN settings")
+        report = await WhopBounties(self.settings.whop_token).list_open_bounties(
+            country=country, business_goal_type=goal, max_pages=max_pages,
+        )
+        self.store.put("whop_discovery", country.upper() + ":" + goal, report)
+        self.store.event("whop_official_read", country.upper() + ":" + goal,
+                         {"count": len(report["observations"]), "complete": report["pagination_complete"]})
+        # Raw account-visible responses stay in the private local ledger, never in
+        # logs, public cloud checkpoints, CPM rankings, or approval records.
+        return {"provider": "whop", "pricing_model": report["pricing_model"],
+                "observed_at": report["observed_at"], "country_filter": report["country_filter"],
+                "business_goal_type": goal, "pagination_complete": report["pagination_complete"],
+                "opportunities": [{key: item[key] for key in (
+                    "id", "title", "currency", "gross_reward_amount", "spots_remaining",
+                    "provider_reports_country_match", "new_account_eligibility_verified",
+                )} for item in report["observations"]],
+                "eligible_campaigns_verified": False, "live_publication_performed": False}
 
     async def tick(self, now: float | None = None) -> list[dict]:
         results = []

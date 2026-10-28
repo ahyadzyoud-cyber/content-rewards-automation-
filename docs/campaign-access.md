@@ -1,5 +1,11 @@
 # Actual campaign discovery and verification
 
+This section records the earlier proxy-blocked check. After environment
+publication, public access works. Current evidence is in
+[Whop findings](live-whop-findings.md) and [Vyro findings](live-vyro-findings.md).
+The newly documented Whop bounty API and real Vyro marketing listings do not
+establish campaign acceptance or new-account/Jordan eligibility.
+
 Checked **2026-10-28**, beginning at `2026-10-28T13:33:32Z`. No actual
 campaign records were obtained from Whop, Content Rewards, or Vyro during this
 check. Consequently there is **no verified best campaign for new accounts in

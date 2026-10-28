@@ -49,6 +49,8 @@ class Campaign(BaseModel):
     requirements: list[NonEmptyText] = Field(default_factory=list)
     requirements_verified: bool = False
     rights_verified: bool = False
+    automation_authorized: bool = False
+    automation_evidence: str = ""
     materials: list[NonEmptyText] = Field(default_factory=list)
     active: bool = True
     evidence_checked_at: datetime | None = None

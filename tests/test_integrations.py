@@ -147,11 +147,52 @@ async def test_instagram_publish_500_is_ambiguous_and_not_retried():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("payload", [{"id": "other", "account_type": "BUSINESS"}, {"id": "account1", "account_type": "PERSONAL"}])
+@pytest.mark.parametrize("payload", [
+    {"user_id": "other", "account_type": "Business"},
+    {"user_id": "account1", "account_type": "PERSONAL"},
+    {"id": "account1", "account_type": "Business"},
+    {"id": "account1", "user_id": "other", "account_type": "Business"},
+    {"user_id": "account1", "account_type": "CREATOR"},
+    {"user_id": True, "account_type": "Business"},
+    {"user_id": "account1", "account_type": None},
+    {"data": []},
+    {"data": [{"user_id": "account1", "account_type": "Business"},
+              {"user_id": "other", "account_type": "Business"}]},
+    {"data": {"user_id": "account1", "account_type": "Business"}},
+    {"data": ["invalid"]},
+])
 async def test_instagram_account_verification_requires_matching_professional_account(payload):
     async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _: httpx.Response(200, json=payload))) as client:
         with pytest.raises(IntegrationError):
             await InstagramPublisher("test-token", "account1", "v24.0", client).verify_account()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("account_type", ["Business", "Media_Creator", "BUSINESS", "MEDIA_CREATOR"])
+@pytest.mark.parametrize("wrapped", [False, True])
+async def test_instagram_identity_uses_token_professional_user_id(account_type, wrapped):
+    def handler(request):
+        assert request.method == "GET"
+        assert request.url.path == "/v26.0/me"
+        assert dict(request.url.params) == {"fields": "user_id,username,account_type"}
+        assert request.headers["Authorization"] == "Bearer test-token"
+        assert "test-token" not in str(request.url)
+        account = {"id": "different-app-scoped-id", "user_id": "account1", "username": "creator",
+                   "account_type": account_type}
+        return httpx.Response(200, json={"data": [account]} if wrapped else account)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        result = await InstagramPublisher("test-token", "account1", "v26.0", client).verify_account()
+    assert result == {"id": "account1", "user_id": "account1", "username": "creator",
+                      "account_type": account_type.upper()}
+
+
+@pytest.mark.asyncio
+async def test_instagram_identity_accepts_numeric_professional_id():
+    async with httpx.AsyncClient(transport=httpx.MockTransport(
+            lambda _: httpx.Response(200, json={"user_id": 12345, "account_type": "Business"}))) as client:
+        account = await InstagramPublisher("test-token", "12345", "v26.0", client).verify_account()
+    assert account["id"] == "12345"
 
 
 @pytest.mark.asyncio

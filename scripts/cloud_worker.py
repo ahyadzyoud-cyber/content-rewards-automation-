@@ -66,6 +66,8 @@ def public_campaign(record: dict) -> dict:
     campaign.eligibility_verified = False
     campaign.eligibility_evidence = ""
     campaign.payout_eligibility_verified = False
+    campaign.automation_authorized = False
+    campaign.automation_evidence = ""
     campaign.payout_evidence = ""
     campaign.requirements_verified = False
     campaign.rights_verified = False
@@ -273,7 +275,7 @@ async def observation_run(state: dict, output: Path, *, public_feed_url: str | N
             raise CloudStateError("At most five feeds are supported per dry run")
     with tempfile.TemporaryDirectory(prefix="rewards-cloud-observation-") as temporary:
         settings = Settings(database=Path(temporary) / "observations.sqlite", media_root=Path(temporary) / "media",
-                            live_publishing=False, admin_token="", youtube_token="", youtube_channel_id="",
+                            live_publishing=False, admin_token="", whop_token="", youtube_token="", youtube_channel_id="",
                             google_client_id="", google_client_secret="", youtube_refresh_token="",
                             instagram_token="", instagram_account_id="", instagram_api_version="", instagram_media_host="")
         workflow = Workflow(settings)

@@ -1,5 +1,10 @@
 # External integration status
 
+Current post-publication evidence supersedes the earlier network failures:
+[Whop API/payout findings](live-whop-findings.md),
+[Vyro opportunities and automation restrictions](live-vyro-findings.md), and
+[Meta's current account/token contract](instagram-authorization-current.md).
+
 Last checked: **2026-10-28 UTC**. Transport tests use HTTPX mock responses;
 they prove request construction and failure handling, not account authorization,
 campaign eligibility, payout access, or a successful real publication.
