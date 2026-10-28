@@ -1,0 +1,23 @@
+[
+  {
+    "id": "replace-with-real-campaign-id",
+    "title": "UNVERIFIED TEMPLATE - replace with authorized campaign export",
+    "source": "manual",
+    "source_url": "https://example.com/replace-with-campaign-terms",
+    "rate_per_1000_views_usd": 0,
+    "remaining_budget_usd": 0,
+    "competition_entries": null,
+    "eligible_countries": [],
+    "eligibility_verified": false,
+    "eligibility_evidence": "",
+    "allowed_platforms": [],
+    "allows_new_accounts": null,
+    "minimum_followers": 0,
+    "requirements": [],
+    "requirements_verified": false,
+    "rights_verified": false,
+    "materials": [],
+    "active": true,
+    "evidence_checked_at": null
+  }
+]
