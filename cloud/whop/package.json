@@ -5,7 +5,13 @@
   "type": "module",
   "scripts": {
     "test": "node --test",
-    "check": "node --check src/worker.mjs"
+    "check": "node --check src/worker.mjs",
+    "test:browser": "node --test browser/owner-origin.mjs"
   },
-  "engines": {"node": ">=22"}
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
+  }
 }

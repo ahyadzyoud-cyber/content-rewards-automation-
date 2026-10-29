@@ -156,6 +156,15 @@ need current, attributable evidence before a candidate is selectable.
 
 ## Operation and recovery
 
+Owner HTML form pages use `Referrer-Policy: same-origin`. Native Chromium form
+POSTs inherit the document policy; `no-referrer` makes their `Origin` header
+`null` even when posting to this same service. This page policy preserves the
+exact origin check without exposing referrers to other origins. Missing, null
+and foreign origins remain rejected; session-bound CSRF checks remain required.
+OAuth callbacks, redirects and other responses retain `no-referrer` so callback
+codes and state cannot become referrers. See the
+[Fetch standard](https://fetch.spec.whatwg.org/#append-a-request-origin-header).
+
 The deployed cron runs every 30 minutes and renews an authorized token before
 expiry. D1 persists successful refresh-token rotations across Worker instances
 and deployments. A database claim admits only one refresh operation for the
@@ -230,3 +239,18 @@ use this descriptive identity as prescribed by
 [Cloudflare](https://developers.cloudflare.com/support/troubleshooting/http-status-codes/cloudflare-1xxx-errors/error-1010/).
 The actual [HTTPS check passed](https://github.com/ahyadzyoud-cyber/content-rewards-automation-/actions/runs/40865214345);
 it does not imply owner OAuth or production token renewal has passed.
+
+
+The owner-form browser regressions run separately from the fast SQLite suite:
+
+```sh
+cd cloud/whop
+npm ci --ignore-scripts --no-audit --no-fund
+npx playwright install --with-deps chromium
+npm run test:browser
+```
+
+With a prepared Chromium installation, set `CHROMIUM_EXECUTABLE_PATH` to that
+binary instead of downloading another browser. Tests use isolated SQLite and
+synthetic credentials, intercept all network traffic, and never authorize Whop
+or touch production D1. CI uses the locked Playwright development dependency.

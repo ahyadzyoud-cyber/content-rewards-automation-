@@ -234,3 +234,57 @@ publication, or earnings is claimed verified by this health check.
 The final client-identity source change also passed
 [CI run40865213842](https://github.com/ahyadzyoud-cyber/content-rewards-automation-/actions/runs/40865213842)
 for commit `8958a6337c49b7860be6999fb549faf3779fccc1`.
+
+
+## Owner login origin correction — 2026-10-29
+
+The real deployed login page loaded with `Referrer-Policy: no-referrer` and the
+configured public origin matched its URL. Chromium154 reproduced the reported
+failure with a native form navigation: the browser serialized `Origin` as the
+literal `null`, and the Worker correctly rejected it with HTTP403. This behavior
+is specified by [Fetch](https://fetch.spec.whatwg.org/#append-a-request-origin-header)
+for native POST navigation under that referrer policy.
+
+The fix overrides the policy to `same-origin` only for the two owner HTML
+states: login and authenticated forms. `requireOrigin` remains the same strict
+comparison, with no missing/null-Origin fallback, Referer trust or Fetch Metadata
+exception. Session-bound CSRF verification, secure cookies, CSP and no-store
+remain enabled. OAuth callbacks and redirects keep `no-referrer`, protecting
+callback codes/state and cross-origin consent navigation.
+
+Safe production browser observations, using an isolated context and a
+purposefully invalid synthetic password, were:
+
+| Page policy | Browser POST Origin | Worker result |
+| --- | --- | --- |
+| Before: no-referrer | null | 403, origin rejected |
+| After: same-origin | exact configured HTTPS origin | 401, normal password validation |
+
+No request body, password, Cookie value, full Referer, callback query or token
+was logged. Browser request interception exposes no Sec-Fetch headers in this
+Chromium setup; missing headers were recorded honestly rather than inferred.
+For live browser probes, requests were forwarded with their browser-generated
+headers through Playwright's TLS-verifying Node transport using the platform's
+provided CA bundle. The Chromium trust store did not accept that CA directly;
+certificate verification was never disabled.
+
+The affected Worker suite passed26 tests, including missing/null/foreign-origin
+rejection for login, OAuthstart and logout before state mutation. All four real Chromium
+regression tests passed, covering the old-policy failure, successful isolated owner
+login/secure session/PKCE-start/logout, tampered CSRF, and cross-origin attacks.
+All fixture browser traffic is intercepted locally; no real Whop consent or
+production account password is used.
+
+The corrected source was uploaded to the existing Free Worker using its
+existing deployment helper. The helper was explicitly given the existing
+Cloudflare app ID instead of any local override. Before/after checks confirmed
+the same D1 binding, secret binding names and hash of public variable values.
+No secret-update API request or new secret binding was sent; the existing
+TOKEN_ENCRYPTION_KEY, OWNER_PASSWORD and broker secret were retained. Public
+health returned HTTP200 with owner configuration complete and live publishing
+false. No database or Worker was recreated and no paid service was activated.
+
+Actual successful production owner authentication still requires the owner's
+existing password in their browser. Refresh the login page before retrying so
+Chrome receives the corrected document policy. No environment configuration
+change or additional Codex Publish action is needed for this deployed fix.

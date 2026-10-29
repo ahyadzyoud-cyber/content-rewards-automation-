@@ -43,6 +43,7 @@ async function ownerLogin(env) {
 }
 async function authorizeStart(env, owner) {
   const result = await handleRequest(post(env, '/oauth/start', {csrf: owner.csrf}, owner.cookie), env, forbiddenFetch);
+  assert.equal(result.headers.get('Referrer-Policy'), 'no-referrer');
   assert.equal(result.status, 303); return new URL(result.headers.get('Location'));
 }
 function tokenResponse(access = 'access-one', refresh = 'refresh-one') {
@@ -112,6 +113,38 @@ test('public health checks real database and key while owner configuration is in
   assert.equal((await handleRequest(req(env, '/health'), {...env, REWARDS_LIVE_PUBLISHING: 'true'}, forbiddenFetch)).status, 503);
 });
 
+test('owner form documents preserve same-origin navigation Origin without exposing cross-origin referrers', async () => {
+  const {env} = setup();
+  const loginPage = await handleRequest(req(env, '/'), env, forbiddenFetch);
+  assert.equal(loginPage.headers.get('Referrer-Policy'), 'same-origin');
+  assert.equal(loginPage.headers.get('Cache-Control'), 'no-store');
+  const owner = await ownerLogin(env);
+  const ownerPage = await handleRequest(req(env, '/', {headers: {Cookie: owner.cookie}}), env, forbiddenFetch);
+  assert.equal(ownerPage.headers.get('Referrer-Policy'), 'same-origin');
+  assert.ok((await ownerPage.text()).includes('action="/oauth/start"'));
+  const callback = await handleRequest(req(env, '/oauth/callback?code=synthetic-untrusted'), env, forbiddenFetch);
+  assert.equal(callback.status, 303);
+  assert.equal(callback.headers.get('Referrer-Policy'), 'no-referrer');
+  assert.equal(callback.headers.get('Location'), '/oauth/result');
+});
+
+test('owner form actions still reject missing, null and foreign Origin before writing state', async () => {
+  const {env, sqlite} = setup(), owner = await ownerLogin(env);
+  for (const path of ['/owner/login', '/oauth/start', '/owner/logout']) {
+    for (const origin of [null, 'null', 'https://foreign.invalid', env.PUBLIC_ORIGIN + '.foreign.invalid', env.PUBLIC_ORIGIN + '/']) {
+      const request = post(env, path, {password: env.OWNER_PASSWORD, csrf: owner.csrf}, owner.cookie);
+      if (origin === null) request.headers.delete('Origin');
+      else request.headers.set('Origin', origin);
+      const denied = await handleRequest(request, env, forbiddenFetch);
+      assert.equal(denied.status, 403, path + ' must reject ' + origin);
+      assert.deepEqual(await denied.json(), {error: 'Same-origin owner action required'});
+    }
+  }
+  assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM oauth_states').get().n, 0);
+  assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM owner_login_throttle').get().n, 0);
+  assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM oauth_sessions').get().n, 1);
+});
+
 test('PKCE start uses only verified read scope, hashed expiring state, browser cookie and CSRF', async () => {
   const {env, sqlite} = setup(), owner = await ownerLogin(env);
   assert.equal((await handleRequest(post(env, '/oauth/start', {csrf: 'wrong'}, owner.cookie), env)).status, 403);
@@ -127,7 +160,7 @@ test('PKCE start uses only verified read scope, hashed expiring state, browser c
   assert.equal(await digest(payload.verifier), auth.searchParams.get('code_challenge'));
   assert.equal(stored.expires_at - Date.now() > 500_000, true);
   const headers = (await handleRequest(req(env, '/'), env)).headers;
-  assert.equal(headers.get('Referrer-Policy'), 'no-referrer');
+  assert.equal(headers.get('Referrer-Policy'), 'same-origin');
   assert.equal(headers.get('Cache-Control'), 'no-store');
   assert.ok(headers.get('Content-Security-Policy').includes("form-action 'self' https://api.whop.com"));
 });

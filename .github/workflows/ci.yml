@@ -29,3 +29,11 @@ jobs:
         run: |
           npm run check
           npm test
+      - name: Install locked browser regression tools
+        working-directory: cloud/whop
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npx playwright install --with-deps chromium
+      - name: Verify owner forms in real Chromium
+        working-directory: cloud/whop
+        run: npm run test:browser

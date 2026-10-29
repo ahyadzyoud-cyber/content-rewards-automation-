@@ -85,6 +85,12 @@ function escape(value) { return String(value).replaceAll('&', '&amp;').replaceAl
 function html(title, body, status = 200, extra = {}) {
   return response('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>' + escape(title) + '</title><body><h1>' + escape(title) + '</h1>' + body + '</body></html>', status, {'Content-Type': 'text/html; charset=utf-8', ...extra});
 }
+function ownerPage(body) {
+  // Native form POSTs inherit the document's referrer policy. no-referrer
+  // serializes Origin as null in Chrome, even for a same-origin navigation.
+  // Preserve exact-origin validation while withholding cross-origin referrers.
+  return html('Whop owner authorization', body, 200, {'Referrer-Policy': 'same-origin'});
+}
 function requireOrigin(request, env) {
   if (request.headers.get('Origin') !== env.PUBLIC_ORIGIN) throw new SafeError('Same-origin owner action required', 403);
 }
@@ -136,9 +142,9 @@ async function login(request, env) {
 async function home(request, env) {
   let owner;
   try { owner = await session(request, env); } catch (error) { if (error.status !== 401) throw error; }
-  if (!owner) return html('Whop owner authorization', '<p>Use the owner password stored in your secure deployment settings. Never share credentials or callback codes in chat.</p><form method="post" action="/owner/login"><label>Owner password <input type="password" name="password" autocomplete="current-password" required></label><button>Sign in</button></form>');
+  if (!owner) return ownerPage('<p>Use the owner password stored in your secure deployment settings. Never share credentials or callback codes in chat.</p><form method="post" action="/owner/login"><label>Owner password <input type="password" name="password" autocomplete="current-password" required></label><button>Sign in</button></form>');
   const state = await status(env);
-  return html('Whop owner authorization', '<p>Authorization: ' + escape(state.authorization) + '. Permission: read available bounties. Publishing stays disabled.</p><form method="post" action="/oauth/start"><input type="hidden" name="csrf" value="' + escape(owner.csrf) + '"><button>Authorize Whop discovery</button></form><form method="post" action="/owner/logout"><input type="hidden" name="csrf" value="' + escape(owner.csrf) + '"><button>Sign out</button></form>');
+  return ownerPage('<p>Authorization: ' + escape(state.authorization) + '. Permission: read available bounties. Publishing stays disabled.</p><form method="post" action="/oauth/start"><input type="hidden" name="csrf" value="' + escape(owner.csrf) + '"><button>Authorize Whop discovery</button></form><form method="post" action="/owner/logout"><input type="hidden" name="csrf" value="' + escape(owner.csrf) + '"><button>Sign out</button></form>');
 }
 async function start(request, env) {
   const {owner} = await csrfForm(request, env);
