@@ -9,7 +9,7 @@ from .whop import WhopError, _token, broker_origin
 
 async def broker_status(settings: Settings, *, client: httpx.AsyncClient | None = None) -> dict:
     if not settings.whop_broker_url or not settings.whop_broker_token:
-        return {"status": "awaiting_owner_cloud_authorization", "requested_scope": "bounty:basic",
+        return {"status": "awaiting_owner_cloud_authorization", "requested_scope": "bounty:basic:read",
                 "durable_renewal_verified": False, "live_publishing": False}
     origin, token = broker_origin(settings.whop_broker_url), _token(settings.whop_broker_token)
     own_client = client is None
@@ -32,7 +32,7 @@ async def broker_status(settings: Settings, *, client: httpx.AsyncClient | None 
         # Explicit fields only: arbitrary upstream bodies/IDs must not enter logs.
         allowed = {"authorized", "renewal_required", "refresh_in_progress", "durable_renewal_verified",
                    "scope_verified", "discovery_verified"}
-        return {"status": "reachable", "requested_scope": "bounty:basic", "live_publishing": False,
+        return {"status": "reachable", "requested_scope": "bounty:basic:read", "live_publishing": False,
                 **{name: result[name] for name in allowed if type(result.get(name)) is bool}}
     except httpx.HTTPError:
         raise WhopError("Whop broker status could not complete; verify permitted HTTPS access") from None

@@ -1,7 +1,7 @@
 # Whop and Content Rewards: verified access findings
 
-Public contracts rechecked on 2026-10-29 (Asia/Amman). No account credentials
-were supplied, no campaign was joined, and no content or payout was submitted.
+Public contracts rechecked on 2026-10-29 (Asia/Amman). No Whop creator grant
+was supplied, no campaign was joined, and no content or payout was submitted.
 
 ## Access now works
 
@@ -41,25 +41,26 @@ real official integration route that can be investigated after owner consent:
 * The country filter means countries where workers **reside**, rather than
   the countries of their audience. An empty `allowed_country_codes` list means
   worldwide in this particular API contract.
-* The List Bounties reference documents `bounty:basic:read`. The owner has
-  requested **only `bounty:basic`** for initial authorization. Public documentation
-  does not establish that these strings are aliases. The new authorization
-  request must retain the exact requested string, and must stop on
-  `invalid_scope` or `insufficient_scope`; it must never expand consent
-  automatically. A user OAuth token lists
-  bounties that the user can see and work. An account API key represents an
-  account and primarily lists its own bounties; it is not equivalent to creator
-  marketplace access.
+* The List Bounties reference requires **`bounty:basic:read`**. Whop's live
+  [OAuth discovery metadata](https://api.whop.com/.well-known/openid-configuration)
+  returned HTTP 200 on 2026-10-29 and advertises that exact scope. It advertises
+  neither `bounty` nor `bounty:basic`; no alias is inferred. Initial consent now
+  requests only the verified read permission, with no write or identity scope.
+  A user OAuth token lists bounties that the user can see and work. An account
+  API key represents an account and primarily lists its own bounties; it is not
+  equivalent to creator marketplace access.
 * [Retrieve Bounty](https://docs.whop.com/api-reference/beta/bounties/retrieve-bounty.md)
   permits anonymous reads of an already-known public bounty ID. It does not
   provide anonymous marketplace listing. No actual public bounty ID was obtained.
 * [Auth & API Keys](https://docs.whop.com/developer/guides/auth-scoping.md)
   distinguishes user OAuth from account/app API credentials.
 
-No authenticated API request was made because no Whop creator OAuth grant is
-configured. `api.whop.com` was not included in the published custom egress
-domains inspected at the start of this research; a supported environment
-allowlist update is needed before testing this specific API route.
+No authenticated bounty request was made because no Whop creator OAuth grant is
+configured. During the initial research, `api.whop.com` was absent from the
+published egress domains and required an allowlist update. After the owner's
+subsequent environment publication, the official API host returned HTTP 200
+for its public OAuth discovery metadata. That resolves the old network blocker
+for this metadata request; it does not establish authenticated bounty access.
 
 Bounties are **not assumed to be the same product or pricing model as CPM
 Content Rewards**. Bounty contracts expose gross rewards and winner slots;
@@ -122,7 +123,7 @@ reward preservation, malformed records, redirects and credential-safe errors.
 The existing project was not rebuilt and prior suites were not rerun. A live
 creator-authorized API result is still required before claiming real discovery.
 
-## Owner authorization and the scope discrepancy
+## Owner authorization and verified read-only scope
 
 The public [OAuth guide](https://docs.whop.com/developer/guides/oauth.md),
 [List Bounties reference](https://docs.whop.com/api-reference/beta/bounties/list-bounties.md),
@@ -150,14 +151,22 @@ were rechecked on 2026-10-29. The contracts establish:
 * The beta listing operation explicitly requires `bounty:basic:read`. The
   Permission Catalog describes complete action identifiers such as
   `company:basic:read`; retrieving its actual data requires authentication.
-  OAuth Grants likewise describes fully qualified actions. No reviewed public
-  page says that `bounty:basic` is an alias or automatically expands to read.
-* The owner explicitly requested **`bounty:basic` only**. The implementation
-  therefore must not silently replace it with `bounty:basic:read`, add identity
-  scopes, or turn discovery failure into broader consent. If Whop rejects the
-  requested scope or accepts it but denies listing, record the sanitized
-  `invalid_scope` / `insufficient_scope` outcome and seek provider clarification
-  or the owner's explicit scope change before attempting wider authorization.
+  OAuth Grants likewise describes fully qualified actions.
+* **The live issuer metadata resolves the prior uncertainty.** At 14:13
+  Asia/Amman on 2026-10-29, anonymous GET
+  `https://api.whop.com/.well-known/openid-configuration` returned HTTP 200,
+  issuer `https://api.whop.com`, the documented authorization/token endpoints,
+  and `scopes_supported` containing `bounty:basic:read`. Neither `bounty` nor
+  `bounty:basic` appears in that advertised list. The current broker requests
+  exactly `bounty:basic:read`, and rejects an explicitly different returned
+  permission rather than widening authorization.
+* Earlier implementation retained `bounty:basic` at the owner's explicit
+  instruction while only the documentation discrepancy was known. That was
+  historical, unverified behavior; no real grant was obtained with it. The
+  latest request to verify the official read-only scope, combined with the
+  live issuer evidence, led to correcting the request **before any consent**.
+  This is a documented scope correction, not a claim that the unsupported
+  strings are aliases. No identity, submission, write or payout scope is added.
 * OAuth error bodies can contain `error` and `error_description`. Do not echo
   arbitrary descriptions, provider bodies, callback URLs or credentials to logs
   or chat. A denied grant is not a reason to request account passwords.

@@ -45,7 +45,7 @@ async def test_status_before_deployment_is_honest_and_never_calls_network():
     async with httpx.AsyncClient(transport=httpx.MockTransport(unexpected)) as client:
         result = await broker_status(Settings(whop_broker_url="", whop_broker_token=""), client=client)
     assert result["status"] == "awaiting_owner_cloud_authorization"
-    assert result["requested_scope"] == "bounty:basic"
+    assert result["requested_scope"] == "bounty:basic:read"
     assert not result["durable_renewal_verified"] and not result["live_publishing"]
 
 

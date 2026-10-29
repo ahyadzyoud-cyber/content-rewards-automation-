@@ -330,7 +330,7 @@ class Workflow:
         """Read official creator-visible fixed rewards without importing them as CPM work."""
         from .whop import WhopBounties
         if not (self.settings.whop_token or (self.settings.whop_broker_url and self.settings.whop_broker_token)):
-            raise Blocked("Authorize Whop through the owner cloud PKCE flow requesting only bounty:basic; manual WHOP_ACCESS_TOKEN remains optional")
+            raise Blocked("Authorize Whop through the owner cloud PKCE flow requesting only bounty:basic:read; manual WHOP_ACCESS_TOKEN remains optional")
         report = await WhopBounties(self.settings.whop_token, broker_url=self.settings.whop_broker_url,
                                   broker_token=self.settings.whop_broker_token).list_open_bounties(
             country=country, business_goal_type=goal, max_pages=max_pages,

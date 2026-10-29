@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 import {readFileSync} from 'node:fs';
-import {accessToken, base64url, bountyParameters, digest, handleRequest, randomValue, runScheduledSafely, scheduledRun, seal, unseal} from '../src/worker.mjs';
+import {AUTHORIZATION_ENDPOINT, REQUESTED_SCOPE, TOKEN_ENDPOINT, accessToken, base64url, bountyParameters, digest, handleRequest, randomValue, runScheduledSafely, scheduledRun, seal, unseal} from '../src/worker.mjs';
 import worker from '../src/worker.mjs';
 
 const schema = readFileSync(new URL('../schema.sql', import.meta.url), 'utf8');
@@ -63,6 +63,25 @@ async function seedSnapshots(env, now) {
 
 // Real SQLite executes exactly the production CAS/RETURNING schema, while HTTP
 // stays a deterministic fake: no authorization, publication or paid API call.
+test('requested read-only scope matches official OAuth discovery metadata snapshot', () => {
+  // Public issuer metadata retrieved 2026-10-29, before requesting consent.
+  // Source: https://api.whop.com/.well-known/openid-configuration
+  const official = {
+    issuer: 'https://api.whop.com',
+    authorization_endpoint: 'https://api.whop.com/oauth/authorize',
+    token_endpoint: 'https://api.whop.com/oauth/token',
+    bounty_scopes: ['bounty:basic:read', 'bounty:capture_clip:complete', 'bounty:capture_clip:create',
+      'bounty:capture_clip:discard', 'bounty:create', 'bounty:submission:create',
+      'bounty:submission:delete', 'bounty:submission:vote', 'bounty:update'],
+  };
+  assert.equal(REQUESTED_SCOPE, 'bounty:basic:read');
+  assert.ok(official.bounty_scopes.includes(REQUESTED_SCOPE));
+  assert.ok(!official.bounty_scopes.includes('bounty'));
+  assert.ok(!official.bounty_scopes.includes('bounty:basic'));
+  assert.equal(AUTHORIZATION_ENDPOINT, official.authorization_endpoint);
+  assert.equal(TOKEN_ENDPOINT, official.token_endpoint);
+});
+
 test('AES-GCM authenticates purpose, key and ciphertext, including large private snapshots', async () => {
   const {env} = setup(); const data = {refreshToken: 'private-value', payload: 'a'.repeat(300_000)};
   const encrypted = await seal(env, 'whop-tokens:v1', data);
@@ -84,12 +103,21 @@ test('owner actions require strong secrets, configured origin, POST Origin, and 
   assert.equal((await handleRequest(req(env, '/oauth/start'), env)).status, 404);
 });
 
-test('PKCE start uses only requested basic scope, hashed expiring state, browser cookie and CSRF', async () => {
+test('public health checks real database and key while owner configuration is incomplete', async () => {
+  const {env} = setup();
+  const response = await handleRequest(req(env, '/health'), {...env, WHOP_CLIENT_ID: '', OWNER_PASSWORD: ''}, forbiddenFetch);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {status: 'ok', live_publishing: false, requested_scope: 'bounty:basic:read', owner_configuration_complete: false, production_verified: false});
+  assert.equal((await handleRequest(req(env, '/health'), {...env, TOKEN_ENCRYPTION_KEY: ''}, forbiddenFetch)).status, 503);
+  assert.equal((await handleRequest(req(env, '/health'), {...env, REWARDS_LIVE_PUBLISHING: 'true'}, forbiddenFetch)).status, 503);
+});
+
+test('PKCE start uses only verified read scope, hashed expiring state, browser cookie and CSRF', async () => {
   const {env, sqlite} = setup(), owner = await ownerLogin(env);
   assert.equal((await handleRequest(post(env, '/oauth/start', {csrf: 'wrong'}, owner.cookie), env)).status, 403);
   const auth = await authorizeStart(env, owner);
   assert.equal(auth.origin + auth.pathname, 'https://api.whop.com/oauth/authorize');
-  assert.equal(auth.searchParams.get('scope'), 'bounty:basic');
+  assert.equal(auth.searchParams.get('scope'), 'bounty:basic:read');
   assert.equal(auth.searchParams.get('code_challenge_method'), 'S256');
   assert.equal(auth.searchParams.get('redirect_uri'), env.PUBLIC_ORIGIN + '/oauth/callback');
   assert.ok(!auth.searchParams.has('client_secret'));
@@ -171,7 +199,7 @@ test('ambiguous refresh failure durably blocks old token replay and sanitizes pr
 });
 
 test('unchanged refresh token and unexpected returned permission are rejected without persistence', async () => {
-  for (const response of [() => tokenResponse('new', 'refresh-old'), () => new Response(JSON.stringify({access_token: 'new', refresh_token: 'rotated', expires_in: 3600, token_type: 'Bearer', scope: 'bounty:basic:read'}))]) {
+  for (const response of [() => tokenResponse('new', 'refresh-old'), () => new Response(JSON.stringify({access_token: 'new', refresh_token: 'rotated', expires_in: 3600, token_type: 'Bearer', scope: 'bounty:create'}))]) {
     const {env} = setup(); await seedTokens(env, Date.now() - 1);
     await assert.rejects(accessToken(env, response)); assert.equal((await credentials(env)).status, 'reauthorization_required');
   }

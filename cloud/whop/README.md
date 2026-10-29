@@ -11,6 +11,16 @@ Codex development environment does not establish a reachable production callback
 The actual callback exists only after deployment to the owner's Cloudflare account
 and verification of that exact HTTPS address.
 
+Current deployment: `https://content-rewards-whop.content-rewards-dc8a4aba9226.workers.dev`.
+The private D1 binding, stable encryption secret and 30-minute renewal cron are
+installed on the verified Free account. Owner app registration/login/consent
+remain pending. `/health` checks database/key health without revealing them.
+The optional manual [HTTPS verification workflow](../../.github/workflows/whop-health.yml)
+uses a standard public GitHub runner and no secrets, cache or artifacts.
+Follow [current owner steps](../../docs/next-actions.md); do not create another
+Worker or replace the encryption key.
+
+
 ## The first owner action
 
 In the official Cloudflare dashboard, use an existing account on **Workers Free**
@@ -106,7 +116,7 @@ Replacing it requires reauthorization unless an explicit migration is performed.
 4. Open the deployed Worker homepage in your own browser. Sign in using the
    owner password configured in Cloudflare, then use the authorization form.
 5. On Whop's own consent screen, confirm that the requested scope is exactly
-   **`bounty:basic`**. The Worker uses PKCE S256, an expiring single-use state,
+   **`bounty:basic:read`**. The Worker uses PKCE S256, an expiring single-use state,
    and browser-bound owner authorization. It requests no identity, submission,
    payout, or write scopes.
 6. Whop redirects your browser to the registered callback. The service exchanges
@@ -114,16 +124,19 @@ Replacing it requires reauthorization unless an explicit migration is performed.
    status screen reports authorization state without displaying any credential.
    Do not copy callback URLs or authorization codes to chat or issue comments.
 
-### Scope limitation that must be resolved with Whop
+### Verified read-only scope
 
-The owner's requested scope is `bounty:basic`. The current official **List Bounties**
-contract names **`bounty:basic:read`**. These strings are not assumed equivalent.
-This service requests only `bounty:basic` and never silently adds another scope.
-If Whop rejects consent or listing with that scope, the service reports the
-failure and stops. Authorization and permission to list are separate checks.
-The owner must obtain Whop's confirmation of the accepted read scope, or explicitly
-approve changing the requested scope, before discovery can be claimed to work.
-The initial application does not call `/userinfo` and does not require `openid`.
+The initial permission is **`bounty:basic:read`**. Whop's live
+[OAuth discovery metadata](https://api.whop.com/.well-known/openid-configuration),
+retrieved with HTTP 200 on 2026-10-29, advertises that exact scope. It advertises
+neither `bounty` nor `bounty:basic`. The official **List Bounties** contract
+requires the same `bounty:basic:read` action. This corrects the earlier
+`bounty:basic` request before any real consent is requested.
+
+Use a dedicated app with only this read permission so a previously accumulated
+broader grant is not reused. If Whop rejects consent or listing, the service
+reports the failure and stops without adding permissions. The initial
+application does not call `/userinfo` and does not require `openid`.
 
 ## Private discovery interface
 
@@ -191,6 +204,7 @@ is performed by the test suite.
 
 ## Official references
 
+- [Whop live OAuth discovery metadata](https://api.whop.com/.well-known/openid-configuration)
 - [Whop OAuth PKCE guide](https://docs.whop.com/developer/guides/oauth.md)
 - [Whop List Bounties contract](https://docs.whop.com/api-reference/beta/bounties/list-bounties.md)
 - [Workers pricing and free limits](https://developers.cloudflare.com/workers/platform/pricing/)

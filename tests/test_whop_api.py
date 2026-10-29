@@ -23,7 +23,7 @@ def test_missing_grant_is_explicit_and_live_stays_disabled(tmp_path):
     with TestClient(app) as client:
         headers = {"Authorization": "Bearer private-owner"}
         response = client.get("/whop/status", headers=headers)
-        assert response.json()["requested_scope"] == "bounty:basic"
+        assert response.json()["requested_scope"] == "bounty:basic:read"
         assert response.json()["live_publishing"] is False
         result = client.post("/whop/discover", json={}, headers=headers)
         assert result.status_code == 409

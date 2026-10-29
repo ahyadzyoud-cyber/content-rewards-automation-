@@ -2,6 +2,13 @@
 
 `rank_whop_bounties(report)` assesses the private, authenticated result of the official Whop bounty reader. It does not import a bounty as a CPM campaign. A fixed reward pays per approved deliverable; a CPM offer pays for qualifying views under separate terms. The adapter never invents a view count to convert between them.
 
+The owner authorization broker requests only **`bounty:basic:read`**, verified
+against Whop's live [issuer metadata](https://api.whop.com/.well-known/openid-configuration)
+and [List Bounties contract](https://docs.whop.com/api-reference/beta/bounties/list-bounties.md)
+on 2026-10-29. `bounty` and `bounty:basic` are not advertised scopes. Having the
+read permission does not establish creator or campaign eligibility and grants
+no submission, publication or payout authority.
+
 Each result places `weaknesses` first. Discovery alone leaves `selectable=false` and `score_out_of_10=null`. `evidence_score_out_of_10` is a partial research score, not a verified opportunity recommendation or earnings forecast. It can help prioritize which briefs to review while eligibility is blocked.
 
 An operator must separately review and retain dated, bounty-specific `BountyVerification` evidence for:

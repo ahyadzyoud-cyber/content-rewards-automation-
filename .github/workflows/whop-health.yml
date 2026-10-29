@@ -1,0 +1,53 @@
+name: Verify Whop callback HTTPS
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    # Only standard runners on this public project; no billing, artifacts or secrets.
+    if: github.event.repository.private == false && github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify TLS, private storage health and callback redirect
+        env:
+          REWARDS_LIVE_PUBLISHING: 'false'
+        run: |
+          python - <<'PY'
+          import json
+          from urllib.error import HTTPError
+          from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
+
+          origin = 'https://content-rewards-whop.content-rewards-dc8a4aba9226.workers.dev'
+          with urlopen(origin + '/health', timeout=30) as response:
+              assert response.status == 200
+              health = json.load(response)
+          assert health['status'] == 'ok'
+          assert health['live_publishing'] is False
+          assert health['requested_scope'] == 'bounty:basic:read'
+          assert health['production_verified'] is False
+
+          class NoRedirect(HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  return None
+
+          try:
+              build_opener(NoRedirect).open(Request(origin + '/oauth/callback'), timeout=30)
+              raise AssertionError('A callback without owner state must redirect safely')
+          except HTTPError as response:
+              assert response.code == 303
+              assert response.headers['Location'] == '/oauth/result'
+              assert response.headers['Cache-Control'] == 'no-store'
+              assert response.headers['Referrer-Policy'] == 'no-referrer'
+          print(json.dumps({'https_verified': True, 'database_health': 'ok',
+                            'invalid_callback_safely_redirected': True,
+                            'owner_configuration_complete': health['owner_configuration_complete'],
+                            'live_publishing': False, 'authorization_verified': False}))
+          PY

@@ -3,7 +3,7 @@
  * Refresh rotation is durably claimed BEFORE sending the consuming request.
  * An ambiguous rotation is never retried with the old refresh token.
  */
-export const REQUESTED_SCOPE = 'bounty:basic';
+export const REQUESTED_SCOPE = 'bounty:basic:read';
 export const AUTHORIZATION_ENDPOINT = 'https://api.whop.com/oauth/authorize';
 export const TOKEN_ENDPOINT = 'https://api.whop.com/oauth/token';
 const API_BOUNTIES = 'https://api.whop.com/api/v1/bounties';
@@ -138,7 +138,7 @@ async function home(request, env) {
   try { owner = await session(request, env); } catch (error) { if (error.status !== 401) throw error; }
   if (!owner) return html('Whop owner authorization', '<p>Use the owner password stored in your secure deployment settings. Never share credentials or callback codes in chat.</p><form method="post" action="/owner/login"><label>Owner password <input type="password" name="password" autocomplete="current-password" required></label><button>Sign in</button></form>');
   const state = await status(env);
-  return html('Whop owner authorization', '<p>Authorization: ' + escape(state.authorization) + '. Requested scope: <code>bounty:basic</code>. Publishing stays disabled.</p><p>Whop currently documents <code>bounty:basic:read</code> for listing bounties; the requested basic grant may be rejected. Permissions are never expanded automatically.</p><form method="post" action="/oauth/start"><input type="hidden" name="csrf" value="' + escape(owner.csrf) + '"><button>Authorize Whop discovery</button></form><form method="post" action="/owner/logout"><input type="hidden" name="csrf" value="' + escape(owner.csrf) + '"><button>Sign out</button></form>');
+  return html('Whop owner authorization', '<p>Authorization: ' + escape(state.authorization) + '. Permission: read available bounties. Publishing stays disabled.</p><form method="post" action="/oauth/start"><input type="hidden" name="csrf" value="' + escape(owner.csrf) + '"><button>Authorize Whop discovery</button></form><form method="post" action="/owner/logout"><input type="hidden" name="csrf" value="' + escape(owner.csrf) + '"><button>Sign out</button></form>');
 }
 async function start(request, env) {
   const {owner} = await csrfForm(request, env);
@@ -172,7 +172,7 @@ async function requestTokens(env, body, fetcher = fetch, now = Date.now) {
   try {
     result = await fetcher(TOKEN_ENDPOINT, {method: 'POST', headers: {'Content-Type': 'application/json', Accept: 'application/json'}, body: JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(20_000)});
   } catch { throw new SafeError('Whop token request could not be confirmed; authorize again rather than replaying a consumed token', 503); }
-  if (!result.ok) throw new SafeError('Whop authorization was rejected; verify the requested bounty:basic scope and authorize again', result.status === 401 || result.status === 403 ? 403 : 409);
+  if (!result.ok) throw new SafeError('Whop authorization was rejected; verify the app has only bounty:basic:read and authorize again', result.status === 401 || result.status === 403 ? 403 : 409);
   let tokens;
   try { tokens = JSON.parse(decoder.decode(await readBytes(result.body, 131072))); }
   catch { throw new SafeError('Whop returned an invalid authorization response; authorize again', 502); }
@@ -261,7 +261,7 @@ async function bountyPage(env, params, token, fetcher) {
   try {
     result = await fetcher(API_BOUNTIES + '?' + params, {method: 'GET', headers: {Authorization: 'Bearer ' + token, Accept: 'application/json', 'Api-Version-Date': API_VERSION}, redirect: 'error', signal: AbortSignal.timeout(20_000)});
   } catch { throw new SafeError('Official Whop discovery could not complete', 503); }
-  if (result.status === 401 || result.status === 403) throw new SafeError('Whop rejected bounty discovery; requested bounty:basic may not satisfy documented bounty:basic:read. No permission was expanded', 403);
+  if (result.status === 401 || result.status === 403) throw new SafeError('Whop rejected bounty discovery; verify the bounty:basic:read grant and app access. No permission was expanded', 403);
   if (!result.ok) throw new SafeError('Official Whop discovery returned HTTP ' + result.status, 502);
   let page;
   try { page = JSON.parse(decoder.decode(await readBytes(result.body, 1_000_000))); }
@@ -317,12 +317,21 @@ export async function scheduledRun(env, fetcher = fetch, now = Date.now()) {
 export async function handleRequest(request, env, fetcher = fetch) {
   const callbackAttempt = new URL(request.url).pathname === '/oauth/callback';
   try {
-    configuration(env);
     const url = new URL(request.url);
     if (url.origin !== env.PUBLIC_ORIGIN) throw new SafeError('Use the configured owner HTTPS origin', 400);
+    if (request.method === 'GET' && url.pathname === '/health' && !url.search) {
+      if (env.REWARDS_LIVE_PUBLISHING !== 'false' || !env.DB) throw new SafeError('Private deployment is not ready', 503);
+      await encryptionKey(env);
+      await database(env).prepare('SELECT 1 AS healthy').first();
+      let ownerConfigured = true;
+      try { configuration(env); } catch { ownerConfigured = false; }
+      return json({status: 'ok', live_publishing: false, requested_scope: REQUESTED_SCOPE,
+        owner_configuration_complete: ownerConfigured, production_verified: false});
+    }
+    configuration(env);
     if (url.pathname !== '/oauth/callback' && url.pathname !== '/api/bounties' && url.search) throw new SafeError('Unexpected request parameters', 400);
     if (request.method === 'GET' && url.pathname === '/') return await home(request, env);
-    if (request.method === 'GET' && url.pathname === '/oauth/result') return html('Whop authorization not completed', '<p>The authorization attempt was invalid, expired, cancelled or rejected. Its private callback parameters have been removed from this page. Start again from owner settings. Whop may reject the requested bounty:basic scope; no broader permissions are requested automatically.</p><p><a href="/">Return to owner settings</a></p>');
+    if (request.method === 'GET' && url.pathname === '/oauth/result') return html('Whop authorization not completed', '<p>The authorization attempt was invalid, expired, cancelled or rejected. Its private callback parameters have been removed from this page. Start again from owner settings. Only the verified read-only bounty permission is requested; permissions are not expanded automatically.</p><p><a href="/">Return to owner settings</a></p>');
     if (request.method === 'POST' && url.pathname === '/owner/login') return await login(request, env);
     if (request.method === 'POST' && url.pathname === '/owner/logout') {
       const {owner} = await csrfForm(request, env);

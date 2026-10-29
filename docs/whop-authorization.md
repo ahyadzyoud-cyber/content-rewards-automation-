@@ -3,24 +3,33 @@
 This extends the existing project. Public posting remains disabled:
 `REWARDS_LIVE_PUBLISHING=false`. No campaign is joined or paid service activated.
 
-The OAuth broker is prepared for Cloudflare Workers Free with persistent D1
-storage. Until an owner-authorized deployment succeeds, **there is no deployed
-callback URL to register**. Publishing a Codex development environment does not
-create an always-running public OAuth website.
+The OAuth broker is deployed on the owner's verified Cloudflare Workers Free
+account. Its exact callback is:
+
+```text
+https://content-rewards-whop.content-rewards-dc8a4aba9226.workers.dev/oauth/callback
+```
+
+The live grant is not yet authorized. Configure the owner-controlled Whop app and
+Cloudflare secrets following [current owner steps](next-actions.md). The general
+deployment instructions below are retained for maintenance, not a request to
+create another service or repeat the completed deployment.
 
 ## Permission requested
 
-The authorization request contains only **`bounty:basic`**, as instructed by the
-owner. It adds no OpenID, email, profile, submission, advertising, funding or
-payout permission. It does not restrict the grant to a Whop business account.
+The authorization request contains only **`bounty:basic:read`**. It adds no
+OpenID, email, profile, submission, advertising, funding or payout permission.
+It does not restrict the grant to a Whop business account.
 
-There is an unresolved provider contract discrepancy: Whop's current
-[List Bounties reference](https://docs.whop.com/api-reference/beta/bounties/list-bounties.md)
-requires `bounty:basic:read`. Its public documentation does not confirm
-`bounty:basic` as an alias. If the exact requested scope is unavailable in the
-app or produces `invalid_scope` / `insufficient_scope`, stop and verify that
-permission with Whop. The system must not automatically add `:read` or retry
-with broader scopes. A scope rejection is not successful discovery.
+The scope discrepancy was resolved before requesting consent on 2026-10-29.
+Whop's live [OAuth discovery metadata](https://api.whop.com/.well-known/openid-configuration)
+returned HTTP 200 with issuer `https://api.whop.com` and advertised
+`bounty:basic:read` in `scopes_supported`. Neither `bounty` nor `bounty:basic`
+appears in that advertised list. This agrees with the required permission in
+[Whop's List Bounties reference](https://docs.whop.com/api-reference/beta/bounties/list-bounties.md).
+The previous `bounty:basic` request was corrected to this explicitly read-only
+permission; the service never adds write, submission or payout scopes. A live
+grant and successful listing still require separate verification.
 
 A dedicated minimal app avoids reusing a grant that previously accumulated
 broader permissions. Existing grants can be reviewed or revoked in
@@ -107,8 +116,8 @@ After the deployment reports a verified HTTPS URL:
 2. In the app's **OAuth** section, register the deployment's **exact**
    `https://ACTUAL_WORKER_HOST/oauth/callback` URI. Replace the example hostname
    with the confirmed real host. Under **View available scopes**, select only
-   `bounty:basic` if Whop actually offers that exact permission. If it does not,
-   stop at the scope discrepancy above; do not grant a different permission.
+   `bounty:basic:read`. If the app does not offer that exact permission, stop and
+   verify app eligibility with Whop; do not select a broader permission.
 3. Set the app's nonsecret client ID (`app_...`) as `WHOP_CLIENT_ID` through the
    deployment configuration. The documented PKCE exchange does not require
    copying an app client secret into this project.
@@ -160,6 +169,7 @@ documents and bank/payment details never belong in this chat.
 
 ## Official references checked 2026-10-29
 
+* [Live OAuth discovery metadata](https://api.whop.com/.well-known/openid-configuration)
 * [OAuth 2.1 and PKCE](https://docs.whop.com/developer/guides/oauth.md)
 * [Permissions](https://docs.whop.com/developer/guides/permissions.md)
 * [Permission Catalog](https://docs.whop.com/api-reference/beta/api-keys/list-the-permission-catalog.md)

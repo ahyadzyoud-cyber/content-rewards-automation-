@@ -5,48 +5,56 @@ live network access were verified. `REWARDS_LIVE_PUBLISHING` is configured and
 remains disabled. The old proxy-blocked instructions are superseded; no new
 environment, project rebuild or repeat of earlier local test suites is needed.
 
-## Whop authorization is the current priority
+## Whop app registration and consent are the current priority
 
-The existing source now includes a complete owner-operated PKCE callback,
-encrypted private D1 credential storage, durable single-flight refresh-token
-rotation, and unattended renewal/discovery. These are tested components, not an
-already deployed Whop grant. The request uses exactly **`bounty:basic`**.
+Cloudflare authorization now works. The existing account passed the free-plan
+check (no account subscriptions), its missing free `workers.dev` namespace was
+initialized, and this project's single Worker/private D1 service was deployed.
+The generated encryption key and broker credential were retained across the
+health-check update. The 30-minute renewal cron is installed; no real Whop grant
+or production renewal has been verified yet.
 
-**Next owner action:** use an existing **Cloudflare Workers Free** account,
-select its `workers.dev` namespace, and create an account-scoped API token with
-**Account Settings Read**, **Workers Scripts Edit**, **D1 Edit**, and
-**Billing Read**. Enter it only as the optional personal
-`CLOUDFLARE_API_TOKEN` in this environment's secure settings, scoped to
-`api.cloudflare.com`. Review/save the pending domain and startup changes and
-**Publish the updated existing environment**. Keep `WHOP_ACCESS_TOKEN` empty
-and optional and `REWARDS_LIVE_PUBLISHING=false`.
+The exact deployed callback to register is:
 
-The agent can then perform the read-only free-plan preflight and deploy this
-project's single private Worker/D1 service. No paid upgrade, another Codex
-environment, or project rebuild is needed. The deployment will return the real
-HTTPS callback to register in Whop. There is no callback address to register yet.
+```text
+https://content-rewards-whop.content-rewards-dc8a4aba9226.workers.dev/oauth/callback
+```
 
-Follow [Whop authorization](whop-authorization.md) for the exact subsequent
-owner steps: register that callback, configure the nonsecret client ID, set the
-owner password securely, and complete consent inside Whop. No token, password,
-callback URL or code is pasted into chat. The separate machine credential is
-configured securely only after the actual broker hostname exists.
+**Next owner action:** open the [Whop Developer Dashboard](https://whop.com/dashboard/developer),
+create/select this project's dedicated OAuth app, and register that exact callback.
+Under **View available scopes**, enable only **`bounty:basic:read`**. The live
+issuer's discovery metadata and List Bounties contract agree on that read-only
+scope; neither `bounty` nor `bounty:basic` is advertised. Earlier basic-only
+instructions have been superseded by this verified provider evidence.
 
-After consent, the worker checks renewal every 30 minutes and reads clipping
-and UGC bounties for Jordan when its private snapshots are missing or six hours
-old. Delayed cron delivery uses persisted due times. A new grant invalidates old
-account observations and renewal evidence. Uncertain refresh writes stop for
-reauthorization instead of replaying a consumed refresh token.
+Then complete these account-owned settings:
 
-`rewards discover-whop --country JO --goal both` retrieves fixed rewards through
-the private broker and reports weaknesses before scores. Unknown new-account
-acceptance, owner payout/KYC, approved materials, rights, platforms, deadlines
-or automation permission blocks selection. CPM Content Rewards remains a
-separate lane requiring an approved source; fixed rewards never become CPM.
+1. In Cloudflare **Workers & Pages → content-rewards-whop → Settings → Variables
+   and Secrets**, set `WHOP_CLIENT_ID` to the app's public ID (normal text).
+2. Set `OWNER_PASSWORD` as a Secret using a password-manager-generated random
+   password of at least 32 characters. Keep it in your password manager.
+3. Replace `WHOP_BROKER_API_TOKEN` with a separate generated random Secret of
+   at least 32 characters. Enter that same machine credential only in this
+   environment's secure `WHOP_BROKER_API_TOKEN` field, scoped to the exact Worker
+   hostname. Do not change `TOKEN_ENCRYPTION_KEY` or the private D1 binding.
+4. Deploy those Cloudflare setting changes. Review/save/**Publish** the pending
+   existing-environment update containing the newly discovered exact Worker
+   host, its nonsecret `WHOP_BROKER_URL`, and the optional machine credential.
+   The address could only be added after real deployment. No new environment
+   is needed. Leave `WHOP_ACCESS_TOKEN` empty and optional and keep
+   `REWARDS_LIVE_PUBLISHING=false`.
+5. Open the [owner authorization site](https://content-rewards-whop.content-rewards-dc8a4aba9226.workers.dev/),
+   sign in with the owner password, choose **Authorize Whop discovery**, review
+   the single `bounty:basic:read` permission on Whop, and consent as the actual
+   Jordan-resident creator. The callback receives and encrypts credentials
+   automatically; no callback URL/code, password or token is pasted into chat.
 
-The public List Bounties contract separately names `bounty:basic:read`; the
-implemented consent request stays `bounty:basic` as instructed. If Whop rejects
-that exact scope, stop for provider clarification rather than adding permissions.
+The agent can then verify the real account-visible clipping and UGC bounty
+responses, persisted renewal and private cron results. Fixed rewards remain
+separate from CPM Content Rewards. Weakness-first rankings still require dated
+new-account, payout/KYC, rights/materials, platform, deadline and automation
+permission evidence; no API grant establishes those campaign-specific facts.
+See [Whop authorization](whop-authorization.md) and [the deployed broker](../cloud/whop/README.md).
 
 ## Social account consent
 

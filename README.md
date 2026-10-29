@@ -12,14 +12,16 @@ rewards discover-whop --country JO --goal both
 ```
 
 The owner-operated [Whop OAuth broker](cloud/whop/README.md) now implements
-PKCE with exactly `bounty:basic`, a registered HTTPS callback, encrypted private
+PKCE with the verified read-only scope `bounty:basic:read`, a registered HTTPS callback, encrypted private
 credential storage and persistent rotating-token renewal. Its free deployment
 helper checks Cloudflare entitlement and preserves keys/state across redeploys.
-It is **not deployed or authorized yet**: the next owner step is secure Cloudflare
-authorization and publication of the pending environment update. Follow
-[Whop authorization](docs/whop-authorization.md). Manual `WHOP_ACCESS_TOKEN`
-remains optional. Fixed-reward assessments list weaknesses first and block
-selection until the actual owner and campaign evidence is verified.
+It is **deployed on a verified free Cloudflare account**, with the exact callback:
+`https://content-rewards-whop.content-rewards-dc8a4aba9226.workers.dev/oauth/callback`.
+Owner Whop app registration, secure login settings and actual consent are still
+required. Follow [Whop authorization](docs/whop-authorization.md) and
+[current owner steps](docs/next-actions.md). Manual `WHOP_ACCESS_TOKEN` remains
+optional. Fixed-reward assessments list weaknesses first and block selection
+until actual owner and campaign evidence is verified.
 
 Provider campaigns cannot become selectable until their actual automated workflow has explicit authorization and evidence (`automation_authorized` and `automation_evidence`). Official API access does not establish campaign-specific posting, rights or payout permission. No recurring website scraper is included.
 

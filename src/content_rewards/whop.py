@@ -124,8 +124,8 @@ class WhopBounties:
 
     Prefer the private cloud broker, which owns the PKCE grant and durable
     rotation. A manual access token remains optional. Request only the owner's
-    chosen ``bounty:basic`` scope; the currently documented endpoint permission
-    ``bounty:basic:read`` mismatch is not silently resolved by widening consent.
+    verified read-only ``bounty:basic:read`` scope, supported by the issuer's
+    live OAuth metadata and the official List Bounties contract.
     An account API key has different account-scoped reach. No writes are made.
     """
 
@@ -164,7 +164,7 @@ class WhopBounties:
                     follow_redirects=False, timeout=30,
                 ) as response:
                     if response.status_code in {401, 403}:
-                        raise WhopError("Whop discovery requires owner authorization; verify whether requested bounty:basic is supported without widening consent")
+                        raise WhopError("Whop discovery requires owner authorization with the verified bounty:basic:read scope")
                     if not 200 <= response.status_code < 300:
                         raise WhopError(f"Whop discovery returned HTTP {response.status_code}")
                     payload = bytearray()
