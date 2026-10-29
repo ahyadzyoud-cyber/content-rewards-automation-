@@ -5,39 +5,48 @@ live network access were verified. `REWARDS_LIVE_PUBLISHING` is configured and
 remains disabled. The old proxy-blocked instructions are superseded; no new
 environment, project rebuild or repeat of earlier local test suites is needed.
 
-## Whop creator consent
+## Whop authorization is the current priority
 
-A real official clipping/UGC bounty discovery adapter is available:
+The existing source now includes a complete owner-operated PKCE callback,
+encrypted private D1 credential storage, durable single-flight refresh-token
+rotation, and unattended renewal/discovery. These are tested components, not an
+already deployed Whop grant. The request uses exactly **`bounty:basic`**.
 
-```bash
-rewards discover-whop --country JO --goal clipping
-```
+**Next owner action:** use an existing **Cloudflare Workers Free** account,
+select its `workers.dev` namespace, and create an account-scoped API token with
+**Account Settings Read**, **Workers Scripts Edit**, **D1 Edit**, and
+**Billing Read**. Enter it only as the optional personal
+`CLOUDFLARE_API_TOKEN` in this environment's secure settings, scoped to
+`api.cloudflare.com`. Review/save the pending domain and startup changes and
+**Publish the updated existing environment**. Keep `WHOP_ACCESS_TOKEN` empty
+and optional and `REWARDS_LIVE_PUBLISHING=false`.
 
-It needs an owner-authorized **user OAuth** grant with `bounty:basic:read`, not
-an account API key with different visibility. Use an existing trusted Whop app
-and registered callback/PKCE flow, following the exact official dashboard steps
-in [live Whop findings](live-whop-findings.md). No credentials, callback codes or
-passwords belong in chat. If no trusted OAuth client/callback exists yet, that
-account-owned app registration and secure token-store path must be established
-before creator consent; the repository does not pretend to provide one.
+The agent can then perform the read-only free-plan preflight and deploy this
+project's single private Worker/D1 service. No paid upgrade, another Codex
+environment, or project rebuild is needed. The deployment will return the real
+HTTPS callback to register in Whop. There is no callback address to register yet.
 
-The new API host `api.whop.com` was discovered in the now-accessible official
-docs. A narrowly scoped network addition and **optional personal**
-`WHOP_ACCESS_TOKEN` requirement were saved to the existing environment draft.
-Review/save that addition with the eventual secure credential configuration,
-then publish the updated environment. Existing published site access already
-works; this addition is specifically for the authenticated API host. No prior
-required social credential declarations were reintroduced.
+Follow [Whop authorization](whop-authorization.md) for the exact subsequent
+owner steps: register that callback, configure the nonsecret client ID, set the
+owner password securely, and complete consent inside Whop. No token, password,
+callback URL or code is pasted into chat. The separate machine credential is
+configured securely only after the actual broker hostname exists.
 
-Whop's public payout guide explicitly includes Jordan, but the owner must still
-complete identity/payout onboarding and verify the actual method shown in the
-account. The bounty country filter is creator residency. New-account acceptance,
-material rights and campaign-specific requirements still need actual evidence.
-Bounties pay fixed rewards and are not silently ranked as CPM Content Rewards.
+After consent, the worker checks renewal every 30 minutes and reads clipping
+and UGC bounties for Jordan when its private snapshots are missing or six hours
+old. Delayed cron delivery uses persisted due times. A new grant invalidates old
+account observations and renewal evidence. Uncertain refresh writes stop for
+reauthorization instead of replaying a consumed refresh token.
 
-Whop access tokens last one hour and refresh tokens rotate; a trusted callback
-and secure durable renewal store are still needed for unattended discovery.
-A short-lived personal access token enables a read-only live test only.
+`rewards discover-whop --country JO --goal both` retrieves fixed rewards through
+the private broker and reports weaknesses before scores. Unknown new-account
+acceptance, owner payout/KYC, approved materials, rights, platforms, deadlines
+or automation permission blocks selection. CPM Content Rewards remains a
+separate lane requiring an approved source; fixed rewards never become CPM.
+
+The public List Bounties contract separately names `bounty:basic:read`; the
+implemented consent request stays `bounty:basic` as instructed. If Whop rejects
+that exact scope, stop for provider clarification rather than adding permissions.
 
 ## Social account consent
 

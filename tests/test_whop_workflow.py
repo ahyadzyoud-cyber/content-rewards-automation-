@@ -10,7 +10,7 @@ async def test_missing_whop_authorization_blocks_before_network(tmp_path, monkey
         pytest.fail("Missing credentials must not initiate Whop discovery")
     monkeypatch.setattr(WhopBounties, "list_open_bounties", unexpected)
     flow = Workflow(Settings(database=tmp_path / "db.sqlite", whop_token=""))
-    with pytest.raises(Blocked, match="bounty:basic:read"):
+    with pytest.raises(Blocked, match="only bounty:basic"):
         await flow.discover_whop()
     assert not flow.store.list("whop_discovery")
 

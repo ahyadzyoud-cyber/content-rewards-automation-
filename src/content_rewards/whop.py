@@ -10,6 +10,7 @@ import math
 import re
 from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -23,6 +24,29 @@ DOCUMENTED_GOALS = {"clipping", "ugc_content"}
 
 class WhopError(IntegrationError):
     """Sanitized read-only discovery error; response bodies are never logged."""
+
+
+def broker_origin(value: str) -> str:
+    """Initial hosting is an owner-configured HTTPS Workers origin, never input from a campaign."""
+    try:
+        parsed = urlsplit(value)
+        valid_port = parsed.port in {None, 443}
+    except (ValueError, TypeError):
+        raise WhopError("Configure the deployed HTTPS Whop Workers origin") from None
+    if (parsed.scheme != "https" or not parsed.hostname or not valid_port
+            or parsed.username or parsed.password or parsed.query or parsed.fragment
+            or parsed.path not in {"", "/"} or not parsed.hostname.endswith(".workers.dev")
+            or not re.fullmatch(r"[a-z0-9-]+\.[a-z0-9-]+\.workers\.dev", parsed.hostname)
+            or any(character.isspace() for character in value)):
+        raise WhopError("Configure the deployed HTTPS Whop Workers origin")
+    return "https://" + parsed.hostname
+
+
+def _token(value: str) -> str:
+    if (not isinstance(value, str) or not value or len(value) > 32768
+            or any(character.isspace() for character in value)):
+        raise WhopError("Authorize Whop through secure credential configuration")
+    return value
 
 
 def _country(value: str) -> str:
@@ -98,23 +122,27 @@ def bounty_observation(record: dict, country: str) -> dict:
 class WhopBounties:
     """List creator-visible fixed-reward opportunities using official GET only.
 
-    Use an owner-authorized user OAuth token with ``bounty:basic:read`` for
-    creator-visible work. An account API key has different account-scoped reach.
-    This adapter does not obtain tokens, join tasks, submit work or move money.
+    Prefer the private cloud broker, which owns the PKCE grant and durable
+    rotation. A manual access token remains optional. Request only the owner's
+    chosen ``bounty:basic`` scope; the currently documented endpoint permission
+    ``bounty:basic:read`` mismatch is not silently resolved by widening consent.
+    An account API key has different account-scoped reach. No writes are made.
     """
 
-    def __init__(self, access_token: str, *, client: httpx.AsyncClient | None = None,
-                 api_version_date: str = API_VERSION_DATE):
-        if (not isinstance(access_token, str) or not access_token or len(access_token) > 32768
-                or any(character.isspace() for character in access_token)):
-            raise WhopError("Authorize Whop through secure credential configuration")
+    def __init__(self, access_token: str = "", *, broker_url: str = "", broker_token: str = "",
+                 client: httpx.AsyncClient | None = None, api_version_date: str = API_VERSION_DATE):
+        if broker_url or broker_token:
+            self._base = broker_origin(broker_url) + "/api"
+            self._access_token = _token(broker_token)
+        else:
+            self._base = API_BASE
+            self._access_token = _token(access_token)
         try:
             parsed_date = date.fromisoformat(api_version_date)
         except (TypeError, ValueError):
             raise WhopError("A verified ISO API version date is required") from None
         if parsed_date.isoformat() != api_version_date:
             raise WhopError("A verified ISO API version date is required")
-        self._access_token = access_token
         self._http = client
         self.api_version_date = api_version_date
 
@@ -130,13 +158,13 @@ class WhopBounties:
         try:
             async with self._client() as client:
                 async with client.stream(
-                    "GET", API_BASE + "/bounties", params=params,
+                    "GET", self._base + "/bounties", params=params,
                     headers={"Authorization": "Bearer " + self._access_token,
                              "Api-Version-Date": self.api_version_date},
                     follow_redirects=False, timeout=30,
                 ) as response:
                     if response.status_code in {401, 403}:
-                        raise WhopError("Whop discovery requires owner authorization and bounty-read permission")
+                        raise WhopError("Whop discovery requires owner authorization; verify whether requested bounty:basic is supported without widening consent")
                     if not 200 <= response.status_code < 300:
                         raise WhopError(f"Whop discovery returned HTTP {response.status_code}")
                     payload = bytearray()

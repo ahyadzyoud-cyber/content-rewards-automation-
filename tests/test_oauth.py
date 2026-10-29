@@ -164,6 +164,23 @@ async def test_refresh_rotation_used_only_for_later_refresh_in_memory():
     assert "rotated-refresh" not in repr(provider)
 
 
+@pytest.mark.parametrize("scope", ["", YOUTUBE_SCOPES[0], YOUTUBE_SCOPES[1], "unrelated"])
+async def test_refresh_rejects_explicitly_reduced_scopes_without_caching(scope):
+    async with httpx.AsyncClient(transport=httpx.MockTransport(
+            lambda _: httpx.Response(200, json=response_payload(scope=scope)))) as client:
+        provider = YouTubeTokenProvider("client", "client-secret", "refresh-secret", client=client)
+        with pytest.raises(OAuthError, match="no longer confirms"):
+            await provider.get_access_token()
+        assert provider._access_token is None
+
+
+async def test_refresh_accepts_confirmed_scopes():
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _: httpx.Response(
+            200, json=response_payload(scope=" ".join(YOUTUBE_SCOPES))))) as client:
+        provider = YouTubeTokenProvider("client", "client-secret", "refresh-secret", client=client)
+        assert await provider.get_access_token() == "refreshed-secret-token"
+
+
 async def test_short_lived_valid_token_is_usable_without_immediate_hot_loop():
     calls = []
     now = [0.0]

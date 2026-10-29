@@ -11,6 +11,8 @@ class Settings:
     live_publishing: bool = field(default_factory=lambda: os.getenv("REWARDS_LIVE_PUBLISHING") == "true")
     admin_token: str = field(default_factory=lambda: os.getenv("REWARDS_ADMIN_TOKEN", ""), repr=False)
     whop_token: str = field(default_factory=lambda: os.getenv("WHOP_ACCESS_TOKEN", ""), repr=False)
+    whop_broker_url: str = field(default_factory=lambda: os.getenv("WHOP_BROKER_URL", ""))
+    whop_broker_token: str = field(default_factory=lambda: os.getenv("WHOP_BROKER_API_TOKEN", ""), repr=False)
     youtube_token: str = field(default_factory=lambda: os.getenv("YOUTUBE_ACCESS_TOKEN", ""), repr=False)
     youtube_refresh_token: str = field(default_factory=lambda: os.getenv("YOUTUBE_REFRESH_TOKEN", ""), repr=False)
     google_client_id: str = field(default_factory=lambda: os.getenv("GOOGLE_CLIENT_ID", ""))

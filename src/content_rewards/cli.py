@@ -55,8 +55,11 @@ def parser() -> argparse.ArgumentParser:
     sub.add_parser("discover")
     whop = sub.add_parser("discover-whop")
     whop.add_argument("--country", default="JO")
-    whop.add_argument("--goal", choices=["clipping", "ugc_content"], default="clipping")
+    whop.add_argument("--goal", choices=["clipping", "ugc_content", "both"], default="both")
     whop.add_argument("--max-pages", type=int, default=5)
+    sub.add_parser("whop-status")
+    whop_verify = sub.add_parser("verify-whop-bounty", help="Record a separately reviewed private bounty evidence file")
+    whop_verify.add_argument("file", type=Path)
     sub.add_parser("schedules")
     cancel = sub.add_parser("cancel-schedule")
     cancel.add_argument("id")
@@ -144,7 +147,22 @@ def execute(args, workflow: Workflow):
         case "discover":
             return asyncio.run(workflow.discover())
         case "discover-whop":
+            if args.goal == "both":
+                async def both_goals():
+                    return {"fixed_bounty_reports": [await workflow.discover_whop(args.country, goal, args.max_pages)
+                                                      for goal in ("clipping", "ugc_content")],
+                            "cpm_campaigns": {"status": "no_verified_permitted_cpm_source", "campaigns": []},
+                            "live_publication_performed": False}
+                return asyncio.run(both_goals())
             return asyncio.run(workflow.discover_whop(args.country, args.goal, args.max_pages))
+        case "whop-status":
+            from .whop_broker import broker_status
+            return asyncio.run(broker_status(workflow.settings))
+        case "verify-whop-bounty":
+            from .whop_ranking import BountyVerification
+            verified = BountyVerification.model_validate_json(args.file.read_text())
+            workflow.store.put("whop_verification", verified.bounty_id, verified.model_dump(mode="json"))
+            return {"recorded": verified.bounty_id, "publication_approved": False}
         case "schedules":
             return workflow.store.schedules()
         case "cancel-schedule":

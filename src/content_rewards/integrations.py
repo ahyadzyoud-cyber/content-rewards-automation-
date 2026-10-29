@@ -63,6 +63,19 @@ def _identifier(value: str) -> str:
     return quote(value, safe="")
 
 
+def _youtube_count(value: object) -> int:
+    """YouTube statistics are unsigned integer counters, never coercible values."""
+    if type(value) is int:
+        count = value
+    elif isinstance(value, str) and re.fullmatch(r"[0-9]{1,20}", value):
+        count = int(value)
+    else:
+        raise IntegrationError("YouTube returned invalid statistics")
+    if not 0 <= count <= 2**64 - 1:
+        raise IntegrationError("YouTube returned invalid statistics")
+    return count
+
+
 class _Adapter:
     provider = "provider"
 
@@ -133,8 +146,9 @@ class YouTubePublisher(_Adapter):
     async def verify_account(self) -> dict:
         response = await self._request("GET", self.api_base + "/channels", params={"part": "snippet,status", "mine": "true"})
         items = self._json(response).get("items")
-        if not isinstance(items, list) or not items or not isinstance(items[0], dict):
-            raise IntegrationError("YouTube authorization did not identify a channel")
+        if not isinstance(items, list) or len(items) != 1 or not isinstance(items[0], dict):
+            raise IntegrationError("YouTube authorization did not identify one channel")
+        _identifier(items[0].get("id"))
         return items[0]
 
     async def upload(self, path: Path, title: str, description: str) -> str:
@@ -177,16 +191,11 @@ class YouTubePublisher(_Adapter):
         stats = items[0].get("statistics")
         if not isinstance(stats, dict) or "viewCount" not in stats:
             raise IntegrationError("YouTube did not return view statistics")
-        try:
-            result = {"views": int(stats["viewCount"])}
-            for source, target in (("likeCount", "likes"), ("commentCount", "comments")):
-                if source in stats:
-                    result[target] = int(stats[source])
-            if any(value < 0 for value in result.values()):
-                raise ValueError
-            return result
-        except (ValueError, TypeError):
-            raise IntegrationError("YouTube returned invalid statistics") from None
+        result = {"views": _youtube_count(stats["viewCount"])}
+        for source, target in (("likeCount", "likes"), ("commentCount", "comments")):
+            if source in stats:
+                result[target] = _youtube_count(stats[source])
+        return result
 
 
 class InstagramPublisher(_Adapter):

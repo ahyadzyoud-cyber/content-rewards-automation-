@@ -1,0 +1,19 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "content-rewards-whop",
+  "main": "src/worker.mjs",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  "preview_urls": false,
+  "observability": {"enabled": false},
+  "triggers": {"crons": ["*/30 * * * *"]},
+  "vars": {
+    "REWARDS_LIVE_PUBLISHING": "false"
+  },
+  "d1_databases": [{
+    "binding": "DB",
+    "database_name": "content-rewards-whop-private",
+    "database_id": "SET_THE_REAL_D1_DATABASE_ID_BEFORE_DEPLOYING",
+    "migrations_dir": "migrations"
+  }]
+}

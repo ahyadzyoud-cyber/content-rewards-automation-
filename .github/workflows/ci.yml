@@ -21,3 +21,11 @@ jobs:
       - run: uv run --frozen ruff check .
       - run: uv run --frozen pytest -q
       - run: uv build
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Check Whop OAuth broker syntax and security contracts
+        working-directory: cloud/whop
+        run: |
+          npm run check
+          npm test

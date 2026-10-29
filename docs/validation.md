@@ -114,3 +114,45 @@ production publishing and earnings remain unverified. The newly documented
 `api.whop.com` destination and optional personal Whop grant are staged separately
 in the existing environment draft. This does not undo the successful original
 publication or make social credentials prerequisites for development setup.
+
+
+## Whop OAuth continuation — 2026-10-29
+
+Interrupted uncommitted source was inspected and preserved; no environment,
+checkout, dependencies or completed features were rebuilt. The new cloud broker
+requests exactly `bounty:basic`, uses PKCE S256, browser-bound expiring one-use
+state, owner login/CSRF and an exact HTTPS callback. Access/refresh credentials
+and private observations use AES-GCM authenticated encryption in D1. The
+rotation claim is committed before the consuming request; uncertain failures
+cannot replay the previous refresh token.
+
+Focused checks passed without any real credentials:
+
+* 22 Node broker tests use actual SQLite with the production schema/CAS SQL and
+  mocked provider HTTP. They cover encryption/purpose/key tampering, state and
+  browser binding/replay, clean callback redirects including errors, refresh
+  concurrency, persisted rotation/restart and ambiguous writes, permission
+  restrictions, private scheduled discovery and generation-bound evidence.
+  A production entry-point regression verifies Cloudflare ExecutionContext is
+  not misused as the HTTP fetcher. Delayed cron delivery uses persistent due times.
+* 68 Whop reader/broker/workflow and existing operator API checks passed; four
+  new authenticated Whop API checks passed. Separate fixed-bounty assessment
+  tests passed (34). Unknown evidence cannot authorize a CPM campaign or job.
+* 25 deployment-helper tests passed, including free-plan rejection, read-only
+  preflight, same-project reuse, secret/key/database preservation, uncertain
+  upload recovery, private bindings and schedule readback, and additive schema.
+* 163 focused social integration/OAuth checks passed for the independent
+  YouTube identity/statistic/scope corrections. No social account was connected.
+* Ruff and diff whitespace checks passed. The old full local suite, Docker
+  build and media demonstration were not rerun; CI now also runs the Node broker
+  checks when source changes are pushed.
+
+The deployment preflight currently stops before network access because secure
+`CLOUDFLARE_API_TOKEN` is missing. No Worker/D1 resources were created, no callback
+URL was claimed live, and no grant, real bounty, CPM campaign or production
+renewal was fabricated. The existing environment draft preserves optional
+`WHOP_ACCESS_TOKEN`, adds optional personal Cloudflare authorization and
+`api.cloudflare.com`, retains `api.whop.com`, and updates startup instructions.
+The save requires owner review/save/**Publish** to apply. Publication does not
+itself deploy the OAuth broker. Live publishing remains false, and no paid
+service or public posting was activated.

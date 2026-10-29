@@ -89,6 +89,38 @@ async def test_youtube_metrics_and_channel_verification():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("items", [
+    [{"id": "channel1"}, {"id": "channel2"}],
+    [{}], [{"id": True}], [{"id": "unsafe/channel"}], [{"id": ""}],
+])
+async def test_youtube_verification_rejects_ambiguous_or_invalid_channel_identity(items):
+    async with httpx.AsyncClient(transport=httpx.MockTransport(
+            lambda _: httpx.Response(200, json={"items": items}))) as client:
+        with pytest.raises(IntegrationError):
+            await YouTubePublisher("test-token", client).verify_account()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("count", [True, False, 1.5, 3.0, "1.5", " 3", "+3", "-1", -1,
+                                  None, {}, [], "9" * 21, str(2**64), 2**64])
+@pytest.mark.parametrize("field", ["viewCount", "likeCount", "commentCount"])
+async def test_youtube_metrics_do_not_coerce_invalid_counters(count, field):
+    statistics = {"viewCount": "123", field: count}
+    async with httpx.AsyncClient(transport=httpx.MockTransport(
+            lambda _: httpx.Response(200, json={"items": [{"statistics": statistics}]}))) as client:
+        with pytest.raises(IntegrationError, match="invalid statistics"):
+            await YouTubePublisher("test-token", client).metrics("video_1")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("count", [0, "0", 2**64 - 1, str(2**64 - 1)])
+async def test_youtube_metrics_preserve_valid_unsigned_counters(count):
+    async with httpx.AsyncClient(transport=httpx.MockTransport(
+            lambda _: httpx.Response(200, json={"items": [{"statistics": {"viewCount": count}}]}))) as client:
+        assert await YouTubePublisher("test-token", client).metrics("video_1") == {"views": int(count)}
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("payload", [{"items": []}, {"items": [{"statistics": {}}]}, {"items": [{"statistics": {"viewCount": "invalid"}}]}])
 async def test_unavailable_youtube_metrics_are_not_reported_as_zero(payload):
     async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _: httpx.Response(200, json=payload))) as client:

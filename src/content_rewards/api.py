@@ -8,6 +8,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from .config import Settings
+from .integrations import IntegrationError
 from .models import Campaign
 from .service import Blocked, Workflow
 
@@ -19,6 +20,13 @@ class PlanRequest(BaseModel):
     source_path: str
     title: str = Field(min_length=1, max_length=100)
     caption: str = Field(default="", max_length=2200)
+
+
+class WhopDiscoveryRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    country: Literal["JO"] = "JO"
+    goal: Literal["clipping", "ugc_content", "both"] = "both"
+    max_pages: int = Field(default=5, ge=1, le=20)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -57,6 +65,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         from fastapi.responses import JSONResponse
         return JSONResponse(status_code=422, content={"detail": "Invalid operation or input"})
 
+    @app.exception_handler(IntegrationError)
+    async def integration_handler(request, exc):
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=502, content={"detail": "Provider operation blocked; verify secure authorization and permitted access"})
+
     @app.get("/health")
     def health():
         # Exercise database access, without revealing runtime bindings.
@@ -76,6 +89,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/rankings", dependencies=protected)
     def rankings(platform: Literal["youtube", "instagram"] | None = None):
         return workflow.rank(platform)
+
+    @app.get("/whop/status", dependencies=protected)
+    async def whop_status():
+        from .whop_broker import broker_status
+        return await broker_status(config)
+
+    @app.post("/whop/discover", dependencies=protected)
+    async def whop_discover(request: WhopDiscoveryRequest):
+        goals = ("clipping", "ugc_content") if request.goal == "both" else (request.goal,)
+        return {"fixed_bounty_reports": [await workflow.discover_whop(request.country, goal, request.max_pages)
+                                          for goal in goals],
+                "cpm_campaigns": {"status": "no_verified_permitted_cpm_source", "campaigns": []},
+                "live_publication_performed": False}
 
     @app.get("/readiness", dependencies=protected)
     def readiness_report():

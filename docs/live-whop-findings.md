@@ -1,6 +1,6 @@
 # Whop and Content Rewards: verified access findings
 
-Checked on 2026-10-28 after the environment was published. No account credentials
+Public contracts rechecked on 2026-10-29 (Asia/Amman). No account credentials
 were supplied, no campaign was joined, and no content or payout was submitted.
 
 ## Access now works
@@ -41,7 +41,12 @@ real official integration route that can be investigated after owner consent:
 * The country filter means countries where workers **reside**, rather than
   the countries of their audience. An empty `allowed_country_codes` list means
   worldwide in this particular API contract.
-* The documented read scope is `bounty:basic:read`. A user OAuth token lists
+* The List Bounties reference documents `bounty:basic:read`. The owner has
+  requested **only `bounty:basic`** for initial authorization. Public documentation
+  does not establish that these strings are aliases. The new authorization
+  request must retain the exact requested string, and must stop on
+  `invalid_scope` or `insufficient_scope`; it must never expand consent
+  automatically. A user OAuth token lists
   bounties that the user can see and work. An account API key represents an
   account and primarily lists its own bounties; it is not equivalent to creator
   marketplace access.
@@ -117,49 +122,55 @@ reward preservation, malformed records, redirects and credential-safe errors.
 The existing project was not rebuilt and prior suites were not rerun. A live
 creator-authorized API result is still required before claiming real discovery.
 
-## Exact owner authorization prerequisite
+## Owner authorization and the scope discrepancy
 
-Whop's public [OAuth guide](https://docs.whop.com/developer/guides/oauth.md)
-was read successfully on 2026-10-28. It documents OAuth 2.1 with PKCE, rather
-than a creator token that can simply be copied from **API keys**. The owner
-must use an existing trusted OAuth client and callback flow:
+The public [OAuth guide](https://docs.whop.com/developer/guides/oauth.md),
+[List Bounties reference](https://docs.whop.com/api-reference/beta/bounties/list-bounties.md),
+[Permission Catalog reference](https://docs.whop.com/api-reference/beta/api-keys/list-the-permission-catalog.md),
+[List OAuth Grants reference](https://docs.whop.com/api-reference/beta/users/list-oauth-grants.md),
+and [Troubleshooting guide](https://docs.whop.com/developer/troubleshooting.md)
+were rechecked on 2026-10-29. The contracts establish:
 
-1. Open the documented [Developer Dashboard](https://whop.com/dashboard/developer)
-   and select the existing app authorized for this integration. In its **OAuth**
-   section, register the callback's exact redirect URI. Do not copy the guide's
-   example callback URL into this project: this repository does not currently
-   provide a Whop consent/callback server or a secure token vault.
-2. Use **View available scopes** in the OAuth section to request
-   `bounty:basic:read`, the scope named by the List Bounties reference. Grant no
-   funding, payout, advertisement or submission writes. Additional identity
-   scopes are only needed if the trusted flow actually uses userinfo.
-3. Start the trusted app's **Sign in with Whop** flow and sign in as the actual
-   creator. Review and approve the requested read permission. The documented
-   authorize endpoint is `https://api.whop.com/oauth/authorize`; the trusted
-   client generates state and a PKCE S256 challenge. Do not narrow the grant to
-   one `company_id` unless account-scoped access is actually intended.
-4. The trusted callback verifies the returned state and exchanges the code using
-   `POST https://api.whop.com/oauth/token` with the matching redirect URI,
-   client ID and PKCE verifier. **Do not paste the callback URL, authorization
-   code, token, client secret or password into chat.** The documented PKCE
-   example does not send a client secret in that exchange; this read connector
-   does not require one merely because the app dashboard also displays it.
-5. Deliver the authorized access token through secure credential settings as
-   `WHOP_ACCESS_TOKEN`, restricted to `api.whop.com`. Then the existing
-   read-only connector can verify actual access and inspect returned bounty
-   terms. If permissions were newly added to an existing app, the official
-   [Permissions guide](https://docs.whop.com/developer/guides/permissions.md)
-   identifies **Dashboard → Settings → Authorized apps** for re-approval.
+* Authorization is `GET https://api.whop.com/oauth/authorize` with
+  `response_type=code`, exact registered `redirect_uri`, random `state`,
+  PKCE `code_challenge`, and `code_challenge_method=S256`.
+* Code exchange is `POST https://api.whop.com/oauth/token`, JSON body containing
+  `grant_type=authorization_code`, `code`, `redirect_uri`, `client_id`, and
+  `code_verifier`. The documented PKCE exchange does not send `client_secret`.
+* Access tokens last one hour. Refresh uses the same token endpoint and JSON
+  `grant_type=refresh_token`, `refresh_token`, and `client_id`. **Refresh tokens
+  rotate on every use.** A successful replacement must be durably stored before
+  another unattended run uses it. If `company_id` was used at authorization, it
+  must match during refresh; this creator discovery flow omits account scoping.
+* The token interface documents `access_token`, `refresh_token`, `token_type`,
+  and `expires_in`. It does not promise a `scope` echo. `id_token` is optional
+  and only appears when `openid` was requested. Requesting profile, email or
+  OpenID scopes is unnecessary for an owner-operated bounty reader, and
+  `/oauth/userinfo` must not be used without its required `openid` scope.
+* The beta listing operation explicitly requires `bounty:basic:read`. The
+  Permission Catalog describes complete action identifiers such as
+  `company:basic:read`; retrieving its actual data requires authentication.
+  OAuth Grants likewise describes fully qualified actions. No reviewed public
+  page says that `bounty:basic` is an alias or automatically expands to read.
+* The owner explicitly requested **`bounty:basic` only**. The implementation
+  therefore must not silently replace it with `bounty:basic:read`, add identity
+  scopes, or turn discovery failure into broader consent. If Whop rejects the
+  requested scope or accepts it but denies listing, record the sanitized
+  `invalid_scope` / `insufficient_scope` outcome and seek provider clarification
+  or the owner's explicit scope change before attempting wider authorization.
+* OAuth error bodies can contain `error` and `error_description`. Do not echo
+  arbitrary descriptions, provider bodies, callback URLs or credentials to logs
+  or chat. A denied grant is not a reason to request account passwords.
+* Existing grants can accumulate permissions across authorizations. Use a
+  dedicated minimal app or review/revoke older broader grants in
+  [Authorized apps](https://whop.com/dashboard/settings/authorized-apps) before
+  treating a new minimal authorization request as proof of a minimal token.
 
-If no trusted registered OAuth client/callback exists, establishing that
-authorization path is a prerequisite; the connector cannot obtain a user grant
-from an account API key or extract a first-party login session instead. No app
-was created or installed during this research.
+See [Whop authorization](whop-authorization.md) for the owner-operated setup
+and the real callback deployment prerequisite. The authorization code travels
+from Whop directly to the registered callback; the owner does not copy a code,
+callback URL, access token or refresh token into chat or a terminal command.
 
-Whop documents a one-hour access-token lifetime and refresh-token rotation on
-every refresh. Unattended operation therefore additionally needs a legitimate
-renewal flow that stores each rotated credential in a secure persistent store.
-The current connector accepts an already-authorized token and does not claim
-that renewal or secure rotation storage is operational. Neither OAuth consent
-nor a successful country-filtered result proves new-social-account acceptance,
-campaign compliance or completed payout verification.
+A deployable callback implementation does not establish that a public callback
+already exists. No real owner grant, live token rotation, Jordan-filtered bounty
+response or CPM campaign was verified during this documentation review.

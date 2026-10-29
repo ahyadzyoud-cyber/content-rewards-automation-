@@ -329,19 +329,24 @@ class Workflow:
     async def discover_whop(self, country: str = "JO", goal: str = "clipping", max_pages: int = 5) -> dict:
         """Read official creator-visible fixed rewards without importing them as CPM work."""
         from .whop import WhopBounties
-        if not self.settings.whop_token:
-            raise Blocked("Authorize a creator Whop OAuth token with bounty:basic:read in secure WHOP_ACCESS_TOKEN settings")
-        report = await WhopBounties(self.settings.whop_token).list_open_bounties(
+        if not (self.settings.whop_token or (self.settings.whop_broker_url and self.settings.whop_broker_token)):
+            raise Blocked("Authorize Whop through the owner cloud PKCE flow requesting only bounty:basic; manual WHOP_ACCESS_TOKEN remains optional")
+        report = await WhopBounties(self.settings.whop_token, broker_url=self.settings.whop_broker_url,
+                                  broker_token=self.settings.whop_broker_token).list_open_bounties(
             country=country, business_goal_type=goal, max_pages=max_pages,
         )
         self.store.put("whop_discovery", country.upper() + ":" + goal, report)
         self.store.event("whop_official_read", country.upper() + ":" + goal,
                          {"count": len(report["observations"]), "complete": report["pagination_complete"]})
+        from .whop_ranking import BountyVerification, rank_whop_bounties
+        verifications = {item["bounty_id"]: BountyVerification.model_validate(item)
+                         for item in self.store.list("whop_verification")}
         # Raw account-visible responses stay in the private local ledger, never in
         # logs, public cloud checkpoints, CPM rankings, or approval records.
         return {"provider": "whop", "pricing_model": report["pricing_model"],
                 "observed_at": report["observed_at"], "country_filter": report["country_filter"],
                 "business_goal_type": goal, "pagination_complete": report["pagination_complete"],
+                "rankings": rank_whop_bounties(report, verifications=verifications, country=country),
                 "opportunities": [{key: item[key] for key in (
                     "id", "title", "currency", "gross_reward_amount", "spots_remaining",
                     "provider_reports_country_match", "new_account_eligibility_verified",

@@ -8,8 +8,18 @@ Public provider access now works. Read [current Whop findings](docs/live-whop-fi
 
 ```bash
 # Requires owner OAuth and the approved api.whop.com destination; never send a token in chat.
-rewards discover-whop --country JO --goal clipping
+rewards discover-whop --country JO --goal both
 ```
+
+The owner-operated [Whop OAuth broker](cloud/whop/README.md) now implements
+PKCE with exactly `bounty:basic`, a registered HTTPS callback, encrypted private
+credential storage and persistent rotating-token renewal. Its free deployment
+helper checks Cloudflare entitlement and preserves keys/state across redeploys.
+It is **not deployed or authorized yet**: the next owner step is secure Cloudflare
+authorization and publication of the pending environment update. Follow
+[Whop authorization](docs/whop-authorization.md). Manual `WHOP_ACCESS_TOKEN`
+remains optional. Fixed-reward assessments list weaknesses first and block
+selection until the actual owner and campaign evidence is verified.
 
 Provider campaigns cannot become selectable until their actual automated workflow has explicit authorization and evidence (`automation_authorized` and `automation_evidence`). Official API access does not establish campaign-specific posting, rights or payout permission. No recurring website scraper is included.
 
@@ -18,7 +28,7 @@ Provider campaigns cannot become selectable until their actual automated workflo
 | Phase | Implemented and tested | External prerequisite |
 | --- | --- | --- |
 | Environment | Published Python 3.12 environment, locked dependencies, SQLite, CLI, authenticated API, passing cloud CI | Optional new Whop API destination/creator consent |
-| Discovery and analysis | Official Whop fixed-bounty reader, normalized imports, permitted feeds, explained CPM scores | Creator OAuth; CPM/Vyro source permission and verified campaign terms |
+| Discovery and analysis | Whop PKCE/private token broker, fixed-bounty reader and evidence-gated ranking, separate CPM imports | Creator OAuth; CPM/Vyro source permission and verified campaign terms |
 | Selection and editing | New-account/Jordan gates; choose best eligible campaign; approved local footage to portrait H264/AAC MP4 | Actual campaign terms, rights, fresh budget and eligibility evidence |
 | Publishing | YouTube refresh-token renewal and resumable upload; Instagram container/status/publish; exact media approval; duplicate-write barriers | Owner OAuth, platform permissions, verified target IDs, first-publication review; Instagram immutable hosting and renewal verification |
 | Tracking | Provider view snapshots, submission/approval/payment evidence ledger | Provider campaign submission/earnings API remains unverified; ledger entries are operator-recorded |

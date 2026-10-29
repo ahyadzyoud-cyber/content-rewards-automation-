@@ -178,6 +178,10 @@ class YouTubeTokenProvider:
                 "client_secret": self._client_secret, "refresh_token": self._refresh_token,
             }, self._http)
             tokens = _parse_tokens(response)
+            # A refresh response may omit scope when it is unchanged. When it
+            # explicitly returns scope, never cache a reduced authorization.
+            if tokens.scope is not None and not set(YOUTUBE_SCOPES).issubset(tokens.scope.split()):
+                raise OAuthError("Google no longer confirms the requested YouTube upload and readonly permissions")
             received = self._clock()
             if not math.isfinite(received) or received < request_started:
                 raise OAuthError("Credential cache clock is invalid")
