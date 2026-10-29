@@ -165,6 +165,14 @@ OAuth callbacks, redirects and other responses retain `no-referrer` so callback
 codes and state cannot become referrers. See the
 [Fetch standard](https://fetch.spec.whatwg.org/#append-a-request-origin-header).
 
+The form-action policy permits only this service, `https://api.whop.com`, and
+`https://whop.com`. Whop's API redirects to its frontend authorization/login
+pages, and Chrome checks form-action across the complete redirect chain. The
+browser regression uses that API302 → frontend307 → login200 sequence and
+verifies that an unrelated redirect remains blocked. Reload the owner page
+after a policy update so the browser uses the new document's CSP.
+
+
 The deployed cron runs every 30 minutes and renews an authorized token before
 expiry. D1 persists successful refresh-token rotations across Worker instances
 and deployments. A database claim admits only one refresh operation for the

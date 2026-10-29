@@ -76,7 +76,9 @@ function response(body, status = 200, extra = {}) {
     'Cache-Control': 'no-store', 'Pragma': 'no-cache',
     'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY', 'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
-    'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' https://api.whop.com; frame-ancestors 'none'; base-uri 'none'",
+    // Whop's authorization API redirects to its whop.com consent/login UI.
+    // Chrome enforces form-action over that redirect chain as well as the POST.
+    'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' https://api.whop.com https://whop.com; frame-ancestors 'none'; base-uri 'none'",
     'Strict-Transport-Security': 'max-age=31536000', ...extra,
   }});
 }

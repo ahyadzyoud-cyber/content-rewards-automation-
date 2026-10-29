@@ -128,6 +128,22 @@ test('owner form documents preserve same-origin navigation Origin without exposi
   assert.equal(callback.headers.get('Location'), '/oauth/result');
 });
 
+test('authorization forms allow only the owner and verified Whop redirect origins', async () => {
+  const {env} = setup(), owner = await ownerLogin(env);
+  const document = await handleRequest(req(env, '/', {headers: {Cookie: owner.cookie}}), env, forbiddenFetch);
+  const policy = document.headers.get('Content-Security-Policy');
+  const targets = policy.split(';').map(value => value.trim()).find(value => value.startsWith('form-action ')).split(/\s+/).slice(1);
+  assert.deepEqual(targets, ["'self'", 'https://api.whop.com', 'https://whop.com']);
+  assert.ok(policy.includes("default-src 'none'"));
+  assert.ok(policy.includes("base-uri 'none'"));
+  assert.ok(policy.includes("frame-ancestors 'none'"));
+  const start = await handleRequest(post(env, '/oauth/start', {csrf: owner.csrf}, owner.cookie), env, forbiddenFetch);
+  assert.equal(start.status, 303);
+  assert.equal(start.headers.get('Referrer-Policy'), 'no-referrer');
+  assert.equal(new URL(start.headers.get('Location')).origin, 'https://api.whop.com');
+  assert.equal(new URL(start.headers.get('Location')).searchParams.get('scope'), 'bounty:basic:read');
+});
+
 test('owner form actions still reject missing, null and foreign Origin before writing state', async () => {
   const {env, sqlite} = setup(), owner = await ownerLogin(env);
   for (const path of ['/owner/login', '/oauth/start', '/owner/logout']) {

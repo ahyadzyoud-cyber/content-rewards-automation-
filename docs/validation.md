@@ -288,3 +288,52 @@ Actual successful production owner authentication still requires the owner's
 existing password in their browser. Refresh the login page before retrying so
 Chrome receives the corrected document policy. No environment configuration
 change or additional Codex Publish action is needed for this deployed fix.
+
+
+## Whop authorization redirect correction — 2026-10-29
+
+The production owner session was active and a recent OAuth start state was
+still bound to that session. Read-only D1 metadata confirmed this without
+printing session hashes, encrypted payloads, state or CSRF values. This shows
+the reported action passed Origin, session and CSRF validation and persisted
+its PKCE transaction. The configured public origin and database binding matched
+this existing deployment; health returned HTTP200 and publishing remained false.
+
+Using the configured public app ID, an isolated anonymous request with synthetic
+state/PKCE verified the actual provider chain without consent or code exchange:
+
+```text
+https://api.whop.com/oauth/authorize  → 302
+https://whop.com/oauth/authorize      → 307
+https://whop.com/login                → 200
+```
+
+Only statuses, origins and paths were logged, never full redirect queries.
+The owner-page CSP permitted `self` and `api.whop.com`, but omitted `whop.com`.
+Real Chromium154 reproduced the exact symptom: POST `/oauth/start` returned303
+and its state was stored, then Chrome raised a `form-action` policy violation
+and stayed on the owner page before contacting the provider frontend. The old
+browser fixture returned200 at the first API hop, so it had missed that chain.
+[MDN documents Chrome's redirect enforcement](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/form-action).
+
+The fix adds only the verified `https://whop.com` frontend to `form-action`.
+There is no wildcard or general HTTPS allowance. Exact Origin checks,
+session-bound CSRF, one-use state, PKCE S256, read-only scope, secure cookies,
+callback validation and no-referrer redirects remain intact.
+
+All27 affected Worker tests and all6 real Chromium tests passed. The updated
+browser fixtures intercept every redirect hop before network: API302,
+frontend307 and login200. They verify that owner cookies stay on the owner
+origin and no owner-page referrer reaches any provider hop. Regressions prove
+both the old-policy failure and rejection of an unrelated provider redirect,
+alongside the existing null/foreign-Origin and tampered-CSRF cases. No test
+performed real consent or exposed production credentials.
+
+Deployment used a code-only upload to the existing Free Worker. It preserved
+all secret bindings and exact existing public variables/D1 binding and sent no
+schema or database-record mutation. No credentials or encryption keys were
+replaced. The first immediate edge read still showed the previous deployment;
+a later verified read returnedHTTP200 with the corrected exact three-target
+policy and `Referrer-Policy: same-origin`. No new environment Publish action is
+required. Reopen the owner homepage to fetch its new CSP before retrying
+**Authorize Whop discovery**; do not merely resubmit the old form document.

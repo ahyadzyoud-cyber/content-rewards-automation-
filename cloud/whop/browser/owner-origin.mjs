@@ -19,11 +19,11 @@ before(async () => {
 });
 after(async () => { await browser?.close(); });
 
-async function fixtureBrowser({oldDocumentPolicy = false} = {}) {
+async function fixtureBrowser({oldDocumentPolicy = false, oldProviderPolicy = false, unapprovedProvider = false} = {}) {
   const fixture = createFixture();
   const {env} = fixture;
   const context = await browser.newContext({serviceWorkers: 'block'});
-  const metadata = [], authorizations = [];
+  const metadata = [], authorizations = [], unapprovedRequests = [];
   const page = await context.newPage();
   page.setDefaultTimeout(10_000);
   const cdp = await context.newCDPSession(page);
@@ -52,8 +52,37 @@ async function fixtureBrowser({oldDocumentPolicy = false} = {}) {
         assert.ok(/^[A-Za-z0-9_-]{43}$/.test(url.searchParams.get('state') || ''));
         assert.ok(/^[A-Za-z0-9_-]{43}$/.test(url.searchParams.get('code_challenge') || ''));
         assert.ok(!headers.referer, 'Cross-origin consent must receive no owner-page referrer');
-        authorizations.push({method: 'GET', path: '/oauth/authorize', no_referrer: true, intercepted: true});
-        await fulfill(200, {'Content-Type': 'text/html'}, '<title>Intercepted consent</title><p>No external request was made.</p>');
+        assert.ok(!headers.cookie, 'The owner session cookie must not reach the provider API');
+        authorizations.push({origin: url.origin, method: 'GET', path: '/oauth/authorize', status: 302,
+          no_referrer: true, no_owner_cookie: true, intercepted: true});
+        const frontend = new URL('https://whop.com/oauth/authorize');
+        frontend.search = url.search;
+        await fulfill(302, {Location: unapprovedProvider ? 'https://unapproved.example.invalid/collect' : frontend.href,
+          'Referrer-Policy': 'no-referrer'}, '');
+        return;
+      }
+      if (url.origin === 'https://whop.com') {
+        if (url.pathname === '/favicon.ico' && request.method === 'GET') {
+          await fulfill(204, {'Content-Type': 'image/x-icon'}, '');
+          return;
+        }
+        assert.equal(request.method, 'GET');
+        assert.ok(!headers.referer, 'Provider redirects must not receive the owner-page referrer');
+        assert.ok(!headers.cookie, 'The owner session cookie must not reach the provider frontend');
+        assert.ok(['/oauth/authorize', '/login'].includes(url.pathname));
+        const status = url.pathname === '/oauth/authorize' ? 307 : 200;
+        authorizations.push({origin: url.origin, method: 'GET', path: url.pathname, status,
+          no_referrer: true, no_owner_cookie: true, intercepted: true});
+        if (status === 307) {
+          await fulfill(307, {Location: 'https://whop.com/login', 'Referrer-Policy': 'no-referrer'}, '');
+        } else {
+          await fulfill(200, {'Content-Type': 'text/html'}, '<title>Whop fixture login</title><h1>Whop fixture login</h1><p>No external request was made.</p>');
+        }
+        return;
+      }
+      if (url.origin === 'https://unapproved.example.invalid') {
+        unapprovedRequests.push({origin: url.origin, path: url.pathname});
+        await fulfill(200, {'Content-Type': 'text/html'}, '<title>Unexpected provider navigation</title>');
         return;
       }
       if (url.origin === 'https://foreign.example.invalid') {
@@ -73,6 +102,10 @@ async function fixtureBrowser({oldDocumentPolicy = false} = {}) {
       });
       const outgoing = Object.fromEntries(response.headers);
       if (oldDocumentPolicy && request.method === 'GET' && url.pathname === '/') outgoing['referrer-policy'] = 'no-referrer';
+      if (oldProviderPolicy && request.method === 'GET' && url.pathname === '/') {
+        outgoing['content-security-policy'] = outgoing['content-security-policy']
+          .replace(/form-action[^;]*/, "form-action 'self' https://api.whop.com");
+      }
       // Explicit safe fields only. No bodies, cookies, passwords, CSRF/state or queries.
       metadata.push({method: request.method, path: url.pathname,
         origin: headers.origin || 'missing', fetch_mode: headers['sec-fetch-mode'] || 'missing',
@@ -87,7 +120,7 @@ async function fixtureBrowser({oldDocumentPolicy = false} = {}) {
       try { await cdp.send('Fetch.failRequest', {requestId: event.requestId, errorReason: 'BlockedByClient'}); } catch {}
     });
   });
-  return {env, page, context, metadata, authorizations, sqlite: fixture.sqlite,
+  return {env, page, context, metadata, authorizations, unapprovedRequests, sqlite: fixture.sqlite,
     async close() { await context.close(); fixture.sqlite.close(); }};
 }
 
@@ -98,6 +131,18 @@ async function signIn(fixture) {
 }
 function loginMetadata(fixture) {
   return fixture.metadata.find(row => row.method === 'POST' && row.path === '/owner/login');
+}
+async function observeCsp(page) {
+  await page.evaluate(() => {
+    globalThis.__ownerCspViolations = [];
+    document.addEventListener('securitypolicyviolation', event => {
+      // A browser blockedURI may contain PKCE/state query values; record only the directive.
+      globalThis.__ownerCspViolations.push(event.effectiveDirective);
+    });
+  });
+}
+async function waitForFormCsp(page) {
+  await page.waitForFunction(() => globalThis.__ownerCspViolations?.includes('form-action'));
 }
 async function runSafely(name, body, options) {
   const fixture = await fixtureBrowser(options);
@@ -140,8 +185,17 @@ test('Chrome signs in, retains cookie protections, starts PKCE without referrer,
     assert.equal(cookie.path, '/');
     assert.equal(cookie.domain, new URL(fixture.env.PUBLIC_ORIGIN).hostname);
     await fixture.page.getByRole('button', {name: 'Authorize Whop discovery'}).click();
-    await fixture.page.waitForURL(url => url.origin === 'https://api.whop.com' && url.pathname === '/oauth/authorize');
-    assert.equal(fixture.authorizations.length, 1);
+    await fixture.page.waitForURL(url => url.origin === 'https://whop.com' && url.pathname === '/login');
+    await fixture.page.getByRole('heading', {name: 'Whop fixture login'}).waitFor();
+    assert.equal(fixture.authorizations.length, 3);
+    assert.deepEqual(fixture.authorizations.map(({origin, path, status}) => ({origin, path, status})), [
+      {origin: 'https://api.whop.com', path: '/oauth/authorize', status: 302},
+      {origin: 'https://whop.com', path: '/oauth/authorize', status: 307},
+      {origin: 'https://whop.com', path: '/login', status: 200},
+    ]);
+    assert.ok(fixture.authorizations.every(row => row.no_owner_cookie && row.no_referrer));
+    const retained = (await fixture.context.cookies(fixture.env.PUBLIC_ORIGIN)).find(item => item.name === '__Host-whop_owner');
+    assert.ok(retained && retained.value === cookie.value, 'Provider navigation must preserve the owner session');
     const authorization = fixture.metadata.find(row => row.path === '/oauth/start');
     assert.equal(authorization.origin, fixture.env.PUBLIC_ORIGIN);
     assert.equal(authorization.status, 303);
@@ -154,6 +208,44 @@ test('Chrome signs in, retains cookie protections, starts PKCE without referrer,
     assert.ok(!(await fixture.context.cookies()).some(item => item.name === '__Host-whop_owner'));
     assert.equal(fixture.sqlite.prepare('SELECT COUNT(*) AS n FROM oauth_sessions').get().n, 0);
   });
+});
+
+test('Chrome reproduces the old CSP blocking the verified provider frontend redirect after OAuth start succeeds', async () => {
+  await runSafely('old-csp-blocks-provider-redirect-chain', async fixture => {
+    await signIn(fixture);
+    await fixture.page.getByRole('button', {name: 'Authorize Whop discovery'}).waitFor();
+    await observeCsp(fixture.page);
+    await fixture.page.getByRole('button', {name: 'Authorize Whop discovery'}).click({noWaitAfter: true});
+    await waitForFormCsp(fixture.page);
+    const current = new URL(fixture.page.url());
+    assert.equal(current.origin, fixture.env.PUBLIC_ORIGIN);
+    assert.equal(current.pathname, '/');
+    const action = fixture.metadata.find(row => row.path === '/oauth/start');
+    assert.equal(action.origin, fixture.env.PUBLIC_ORIGIN);
+    assert.equal(action.status, 303);
+    assert.equal(fixture.sqlite.prepare('SELECT COUNT(*) AS n FROM oauth_states').get().n, 1);
+    assert.deepEqual(fixture.authorizations.map(({origin, path, status}) => ({origin, path, status})), [
+      {origin: 'https://api.whop.com', path: '/oauth/authorize', status: 302},
+    ]);
+    assert.equal(fixture.unapprovedRequests.length, 0);
+  }, {oldProviderPolicy: true});
+});
+
+test('Chrome still blocks an unrelated origin in the provider redirect chain without leaking the owner cookie', async () => {
+  await runSafely('unapproved-provider-redirect-remains-blocked', async fixture => {
+    await signIn(fixture);
+    await fixture.page.getByRole('button', {name: 'Authorize Whop discovery'}).waitFor();
+    await observeCsp(fixture.page);
+    await fixture.page.getByRole('button', {name: 'Authorize Whop discovery'}).click({noWaitAfter: true});
+    await waitForFormCsp(fixture.page);
+    assert.equal(new URL(fixture.page.url()).origin, fixture.env.PUBLIC_ORIGIN);
+    const action = fixture.metadata.find(row => row.path === '/oauth/start');
+    assert.equal(action.status, 303);
+    assert.equal(fixture.authorizations.length, 1);
+    assert.ok(fixture.authorizations[0].no_owner_cookie && fixture.authorizations[0].no_referrer);
+    assert.equal(fixture.unapprovedRequests.length, 0, 'CSP must block before any request to the unrelated origin');
+    assert.ok((await fixture.context.cookies(fixture.env.PUBLIC_ORIGIN)).some(item => item.name === '__Host-whop_owner'));
+  }, {unapprovedProvider: true});
 });
 
 test('Chrome same-origin form with a tampered CSRF token remains rejected', async () => {
