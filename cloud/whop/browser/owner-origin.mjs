@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {after, before, test} from 'node:test';
-import {AUTHORIZATION_ENDPOINT, REQUESTED_SCOPE, handleRequest} from '../src/worker.mjs';
+import {AUTHORIZATION_ENDPOINT, REQUESTED_SCOPE, TOKEN_ENDPOINT, digest, handleRequest, runScheduledSafely, unseal} from '../src/worker.mjs';
 import {createFixture} from '../test-support/fixture.mjs';
 
 // createRequire also supports an already installed development copy via NODE_PATH.
@@ -19,11 +19,35 @@ before(async () => {
 });
 after(async () => { await browser?.close(); });
 
-async function fixtureBrowser({oldDocumentPolicy = false, oldProviderPolicy = false, unapprovedProvider = false} = {}) {
+async function fixtureBrowser({oldDocumentPolicy = false, oldProviderPolicy = false, unapprovedProvider = false,
+  completeConsent = false, providerDelayMs = 0, callbackStateMode = 'valid', cleanupDuringDelay = false} = {}) {
   const fixture = createFixture();
   const {env} = fixture;
   const context = await browser.newContext({serviceWorkers: 'block'});
   const metadata = [], authorizations = [], unapprovedRequests = [];
+  let transactionState, transactionChallenge, workerClockOffset = 0, tokenExchanges = 0;
+  const systemNow = Date.now.bind(Date);
+  function callbackUrl() {
+    const target = new URL(env.PUBLIC_ORIGIN + '/oauth/callback');
+    target.searchParams.set('code', 'synthetic-provider-code');
+    if (callbackStateMode !== 'missing') target.searchParams.set('state', callbackStateMode === 'wrong' ? 'A'.repeat(43) : transactionState);
+    return target.href;
+  }
+  async function fixtureTokens(target, options) {
+    assert.ok(completeConsent, 'Only completed synthetic consent may invoke the fake token endpoint');
+    assert.equal(target, TOKEN_ENDPOINT);
+    assert.equal(options.method, 'POST');
+    assert.equal(options.redirect, 'error');
+    const values = JSON.parse(options.body);
+    assert.equal(values.grant_type, 'authorization_code');
+    assert.equal(values.code, 'synthetic-provider-code');
+    assert.equal(values.client_id, env.WHOP_CLIENT_ID);
+    assert.equal(values.redirect_uri, env.PUBLIC_ORIGIN + '/oauth/callback');
+    assert.equal(await digest(values.code_verifier), transactionChallenge);
+    tokenExchanges++;
+    return new Response(JSON.stringify({access_token: 'synthetic-browser-access', refresh_token: 'synthetic-browser-refresh',
+      token_type: 'Bearer', expires_in: 3600, scope: REQUESTED_SCOPE}), {headers: {'Content-Type': 'application/json'}});
+  }
   const page = await context.newPage();
   page.setDefaultTimeout(10_000);
   const cdp = await context.newCDPSession(page);
@@ -51,6 +75,8 @@ async function fixtureBrowser({oldDocumentPolicy = false, oldProviderPolicy = fa
         assert.equal(url.searchParams.get('code_challenge_method'), 'S256');
         assert.ok(/^[A-Za-z0-9_-]{43}$/.test(url.searchParams.get('state') || ''));
         assert.ok(/^[A-Za-z0-9_-]{43}$/.test(url.searchParams.get('code_challenge') || ''));
+        transactionState = url.searchParams.get('state');
+        transactionChallenge = url.searchParams.get('code_challenge');
         assert.ok(!headers.referer, 'Cross-origin consent must receive no owner-page referrer');
         assert.ok(!headers.cookie, 'The owner session cookie must not reach the provider API');
         authorizations.push({origin: url.origin, method: 'GET', path: '/oauth/authorize', status: 302,
@@ -66,6 +92,19 @@ async function fixtureBrowser({oldDocumentPolicy = false, oldProviderPolicy = fa
           await fulfill(204, {'Content-Type': 'image/x-icon'}, '');
           return;
         }
+        if (completeConsent && url.pathname === '/approve' && request.method === 'POST') {
+          assert.ok(!headers.cookie, 'The synthetic approval must not receive the owner session cookie');
+          if (cleanupDuringDelay) {
+            const result = await runScheduledSafely(env, fixtureTokens, systemNow() + workerClockOffset + 12 * 60_000);
+            assert.equal(result.status, 'blocked_owner_or_provider_action');
+            assert.equal(fixture.sqlite.prepare('SELECT COUNT(*) AS n FROM oauth_states').get().n, 1,
+              'Scheduled cleanup must preserve a pending transaction inside the consent window');
+          }
+          workerClockOffset += providerDelayMs;
+          authorizations.push({origin: url.origin, method: 'POST', path: '/approve', status: 303, intercepted: true});
+          await fulfill(303, {Location: callbackUrl(), 'Referrer-Policy': 'no-referrer'}, '');
+          return;
+        }
         assert.equal(request.method, 'GET');
         assert.ok(!headers.referer, 'Provider redirects must not receive the owner-page referrer');
         assert.ok(!headers.cookie, 'The owner session cookie must not reach the provider frontend');
@@ -76,7 +115,8 @@ async function fixtureBrowser({oldDocumentPolicy = false, oldProviderPolicy = fa
         if (status === 307) {
           await fulfill(307, {Location: 'https://whop.com/login', 'Referrer-Policy': 'no-referrer'}, '');
         } else {
-          await fulfill(200, {'Content-Type': 'text/html'}, '<title>Whop fixture login</title><h1>Whop fixture login</h1><p>No external request was made.</p>');
+          const consent = completeConsent ? '<form method="post" action="/approve"><button>Approve fixture authorization</button></form>' : '';
+          await fulfill(200, {'Content-Type': 'text/html'}, '<title>Whop fixture login</title><h1>Whop fixture login</h1><p>No external request was made.</p>' + consent);
         }
         return;
       }
@@ -97,9 +137,13 @@ async function fixtureBrowser({oldDocumentPolicy = false, oldProviderPolicy = fa
       }
       const incoming = new Request(request.url, {method: request.method, headers,
         body: request.method === 'POST' ? request.postData : undefined});
-      const response = await handleRequest(incoming, env, () => {
-        throw new Error('Worker provider HTTP must never run in browser fixtures');
-      });
+      let response;
+      const originalNow = Date.now;
+      try {
+        // Advance only the server clock, never Chromium's cookie clock or network.
+        Date.now = () => systemNow() + workerClockOffset;
+        response = await handleRequest(incoming, env, fixtureTokens);
+      } finally { Date.now = originalNow; }
       const outgoing = Object.fromEntries(response.headers);
       if (oldDocumentPolicy && request.method === 'GET' && url.pathname === '/') outgoing['referrer-policy'] = 'no-referrer';
       if (oldProviderPolicy && request.method === 'GET' && url.pathname === '/') {
@@ -111,6 +155,8 @@ async function fixtureBrowser({oldDocumentPolicy = false, oldProviderPolicy = fa
         origin: headers.origin || 'missing', fetch_mode: headers['sec-fetch-mode'] || 'missing',
         fetch_site: headers['sec-fetch-site'] || 'missing', navigation: event.resourceType === 'Document',
         resource_type: event.resourceType.toLowerCase(), status: response.status,
+        owner_cookie_present: !!headers.cookie,
+        session_cookie_refreshed: url.pathname === '/oauth/start' && /Max-Age=1800(?:;|$)/.test(outgoing['set-cookie'] || ''),
         document_policy: outgoing['referrer-policy']});
       await fulfill(response.status, outgoing, await response.arrayBuffer());
     })().catch(async () => {
@@ -121,6 +167,10 @@ async function fixtureBrowser({oldDocumentPolicy = false, oldProviderPolicy = fa
     });
   });
   return {env, page, context, metadata, authorizations, unapprovedRequests, sqlite: fixture.sqlite,
+    advanceWorkerClock(milliseconds) { workerClockOffset += milliseconds; },
+    get workerNow() { return systemNow() + workerClockOffset; },
+    get tokenExchangeCount() { return tokenExchanges; },
+    get syntheticCallbackUrl() { return callbackUrl(); },
     async close() { await context.close(); fixture.sqlite.close(); }};
 }
 
@@ -276,3 +326,83 @@ test('Chrome foreign-origin form remains rejected even with the correct syntheti
     assert.equal(fixture.sqlite.prepare('SELECT COUNT(*) AS n FROM oauth_sessions').get().n, 0);
   });
 });
+
+async function beginSyntheticConsent(fixture, loginAgeMs = 0) {
+  await signIn(fixture);
+  await fixture.page.getByRole('button', {name: 'Authorize Whop discovery'}).waitFor();
+  const priorCookie = (await fixture.context.cookies(fixture.env.PUBLIC_ORIGIN)).find(value => value.name === '__Host-whop_owner');
+  fixture.advanceWorkerClock(loginAgeMs);
+  await fixture.page.getByRole('button', {name: 'Authorize Whop discovery'}).click();
+  await fixture.page.getByRole('button', {name: 'Approve fixture authorization'}).waitFor();
+  const refreshed = (await fixture.context.cookies(fixture.env.PUBLIC_ORIGIN)).find(value => value.name === '__Host-whop_owner');
+  assert.ok(refreshed && refreshed.value === priorCookie.value, 'Starting consent must retain the same owner session cookie');
+  assert.ok(refreshed.secure && refreshed.httpOnly && refreshed.sameSite === 'Lax');
+  const start = fixture.metadata.find(value => value.path === '/oauth/start');
+  assert.equal(start.status, 303);
+  assert.equal(start.session_cookie_refreshed, true, 'Starting consent must renew the bounded browser cookie lifetime');
+}
+
+test('Chrome completes consent after a 26-minute provider delay despite a 25-minute-old owner login', async () => {
+  await runSafely('delayed-consent-callback-encrypts-tokens-once', async fixture => {
+    await beginSyntheticConsent(fixture, 25 * 60_000);
+    const state = fixture.sqlite.prepare('SELECT expires_at FROM oauth_states').get();
+    const session = fixture.sqlite.prepare('SELECT expires_at FROM oauth_sessions').get();
+    assert.ok(state.expires_at - fixture.workerNow > 29 * 60_000, 'PKCE state must cover the full bounded consent window');
+    assert.ok(session.expires_at - fixture.workerNow > 29 * 60_000, 'The validated owner session must cover that same window');
+    await fixture.page.getByRole('button', {name: 'Approve fixture authorization'}).click();
+    await fixture.page.waitForURL(url => url.origin === fixture.env.PUBLIC_ORIGIN && url.pathname === '/');
+    await fixture.page.getByRole('button', {name: 'Authorize Whop discovery'}).waitFor();
+    const callback = fixture.metadata.find(value => value.path === '/oauth/callback');
+    assert.equal(callback.method, 'GET');
+    assert.equal(callback.owner_cookie_present, true);
+    assert.equal(callback.status, 303);
+    assert.equal(callback.document_policy, 'no-referrer');
+    assert.equal(fixture.tokenExchangeCount, 1);
+    const saved = fixture.sqlite.prepare('SELECT status,version,encrypted_payload FROM whop_credentials').get();
+    assert.equal(saved.status, 'ready');
+    assert.ok(!saved.encrypted_payload.includes('synthetic-browser-access'));
+    assert.ok(!saved.encrypted_payload.includes('synthetic-browser-refresh'));
+    const tokens = await unseal(fixture.env, 'whop-tokens:v1', saved.encrypted_payload);
+    assert.equal(tokens.accessToken, 'synthetic-browser-access');
+    assert.equal(tokens.refreshToken, 'synthetic-browser-refresh');
+    assert.equal(fixture.sqlite.prepare('SELECT COUNT(*) AS n FROM oauth_states').get().n, 0);
+    // The consumed callback cannot exchange its one-time code a second time.
+    await fixture.page.goto(fixture.syntheticCallbackUrl);
+    await fixture.page.waitForURL(url => url.origin === fixture.env.PUBLIC_ORIGIN && url.pathname.startsWith('/oauth/result'));
+    assert.equal(fixture.tokenExchangeCount, 1);
+    const retained = fixture.sqlite.prepare('SELECT status,version,encrypted_payload FROM whop_credentials').get();
+    assert.equal(retained.status, 'ready');
+    assert.equal(retained.version, saved.version);
+    assert.equal(retained.encrypted_payload, saved.encrypted_payload);
+  }, {completeConsent: true, providerDelayMs: 26 * 60_000, cleanupDuringDelay: true});
+});
+
+test('Chrome rejects a callback after the 30-minute consent window without a token exchange', async () => {
+  await runSafely('expired-consent-callback-does-not-exchange', async fixture => {
+    await beginSyntheticConsent(fixture);
+    await fixture.page.getByRole('button', {name: 'Approve fixture authorization'}).click();
+    await fixture.page.waitForURL(url => url.origin === fixture.env.PUBLIC_ORIGIN && url.pathname.startsWith('/oauth/result'));
+    assert.equal(fixture.tokenExchangeCount, 0);
+    assert.equal(fixture.sqlite.prepare('SELECT status FROM whop_credentials').get().status, 'empty');
+    const callback = fixture.metadata.find(value => value.path === '/oauth/callback');
+    assert.equal(callback.owner_cookie_present, true);
+    assert.equal(callback.status, 303);
+    assert.equal(callback.document_policy, 'no-referrer');
+  }, {completeConsent: true, providerDelayMs: 31 * 60_000});
+});
+
+for (const callbackStateMode of ['missing', 'wrong']) {
+  test('Chrome rejects a completed-provider callback with ' + callbackStateMode + ' state before token exchange', async () => {
+    await runSafely(callbackStateMode + '-state-callback-does-not-exchange', async fixture => {
+      await beginSyntheticConsent(fixture);
+      await fixture.page.getByRole('button', {name: 'Approve fixture authorization'}).click();
+      await fixture.page.waitForURL(url => url.origin === fixture.env.PUBLIC_ORIGIN && url.pathname.startsWith('/oauth/result'));
+      assert.equal(fixture.tokenExchangeCount, 0);
+      assert.equal(fixture.sqlite.prepare('SELECT status FROM whop_credentials').get().status, 'empty');
+      assert.equal(fixture.sqlite.prepare('SELECT COUNT(*) AS n FROM oauth_states').get().n, 1, 'An invalid callback must not consume the valid pending transaction');
+      const callback = fixture.metadata.find(value => value.path === '/oauth/callback');
+      assert.equal(callback.owner_cookie_present, true);
+      assert.equal(callback.status, 303);
+    }, {completeConsent: true, callbackStateMode});
+  });
+}

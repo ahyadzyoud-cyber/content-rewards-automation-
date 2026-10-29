@@ -182,6 +182,14 @@ requires owner reauthorization; an old refresh token is never blindly replayed.
 This conservative recovery prevents reuse of a consumed rotating token but can
 require owner attention after a network failure or crash during renewal.
 
+The owner has 30 minutes to finish a newly started authorization. A protected
+start refreshes the same already-authenticated owner session for that window,
+so time spent signed in before starting does not shorten the consent deadline.
+Session renewal and browser-bound state creation commit atomically; revoked,
+expired or CSRF-invalid sessions cannot be renewed this way. Expired or replayed
+callbacks never exchange a code. Fixed callback-result pages explain the
+failure stage without including codes, state, tokens or upstream response text.
+
 The credential database is private. Keep Worker request observability and
 invocation logging disabled as configured; OAuth callback query strings contain
 short-lived authorization codes. Do not enable request logging, Logpush, tail

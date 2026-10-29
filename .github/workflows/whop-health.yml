@@ -35,6 +35,7 @@ jobs:
               assert health['status'] == 'ok'
               assert health['live_publishing'] is False
               assert health['requested_scope'] == 'bounty:basic:read'
+              assert health['authorization_window_minutes'] == 30
               assert health['production_verified'] is False
           except Exception as error:
               diagnostic = {'stage': 'health', 'error_type': type(error).__name__}
@@ -65,14 +66,15 @@ jobs:
               build_opener(NoRedirect).open(Request(origin + '/oauth/callback', headers=headers), timeout=30)
               raise AssertionError('A callback without owner state must redirect safely')
           except HTTPError as response:
+              expected_result = '/oauth/result/owner-session-required' if health['owner_configuration_complete'] else '/oauth/result'
               valid = (response.code == 303
-                       and response.headers['Location'] == '/oauth/result'
+                       and response.headers['Location'] == expected_result
                        and response.headers['Cache-Control'] == 'no-store'
                        and response.headers['Referrer-Policy'] == 'no-referrer')
               if not valid:
                   print('::error title=Whop callback diagnostic::' + json.dumps({
                       'stage': 'callback', 'http_status': response.code,
-                      'relative_clean_redirect': response.headers['Location'] == '/oauth/result',
+                      'relative_clean_redirect': response.headers['Location'] == expected_result,
                       'cache_control_ok': response.headers['Cache-Control'] == 'no-store',
                       'referrer_policy_ok': response.headers['Referrer-Policy'] == 'no-referrer'}))
                   raise SystemExit(1)

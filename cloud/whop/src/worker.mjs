@@ -10,12 +10,20 @@ const API_BOUNTIES = 'https://api.whop.com/api/v1/bounties';
 const API_VERSION = '2026-10-28';
 const COOKIE = '__Host-whop_owner';
 const SESSION_MS = 30 * 60_000;
-const STATE_MS = 10 * 60_000;
+// Account verification/consent can take longer than ten minutes. Keep the
+// single-use PKCE transaction within the same bounded owner-session window.
+const STATE_MS = SESSION_MS;
+const CALLBACK_RESULTS = {
+  'owner-session-required': ['Owner session expired', 'Sign in to the owner page, then start a new Whop authorization. Your existing account settings are unchanged.'],
+  'authorization-request-unavailable': ['Authorization request expired or unavailable', 'This request expired, was already used, or no longer matches this browser. Start a new authorization from the owner page.'],
+  'provider-denied': ['Whop authorization was not completed', 'Whop returned an authorization error. No credentials were saved. Start a new authorization from the owner page.'],
+  'token-exchange-failed': ['Whop token exchange was not completed', 'The authorization response could not be exchanged and validated safely. Start a new authorization; consumed codes are never retried.'],
+};
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', {fatal: true});
 
 export class SafeError extends Error {
-  constructor(message, status = 409) { super(message); this.status = status; }
+  constructor(message, status = 409, callbackResult = null) { super(message); this.status = status; this.callbackResult = callbackResult; }
 }
 
 export function base64url(bytes) {
@@ -112,10 +120,10 @@ function cookieValue(request) {
 function sessionCookie(value, age = SESSION_MS / 1000) { return COOKIE + '=' + value + '; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=' + age; }
 async function session(request, env, now = Date.now()) {
   const token = cookieValue(request);
-  if (!token) throw new SafeError('Owner login required', 401);
+  if (!token) throw new SafeError('Owner login required', 401, 'owner-session-required');
   const hash = await digest(token);
   const row = await database(env).prepare('SELECT encrypted_payload,expires_at FROM oauth_sessions WHERE session_hash=?').bind(hash).first();
-  if (!row || row.expires_at <= now) throw new SafeError('Owner session expired; sign in again', 401);
+  if (!row || row.expires_at <= now) throw new SafeError('Owner session expired; sign in again', 401, 'owner-session-required');
   const payload = await unseal(env, 'whop-owner-session:v1', row.encrypted_payload);
   return {hash, csrf: payload.csrf};
 }
@@ -146,18 +154,25 @@ async function home(request, env) {
   try { owner = await session(request, env); } catch (error) { if (error.status !== 401) throw error; }
   if (!owner) return ownerPage('<p>Use the owner password stored in your secure deployment settings. Never share credentials or callback codes in chat.</p><form method="post" action="/owner/login"><label>Owner password <input type="password" name="password" autocomplete="current-password" required></label><button>Sign in</button></form>');
   const state = await status(env);
-  return ownerPage('<p>Authorization: ' + escape(state.authorization) + '. Permission: read available bounties. Publishing stays disabled.</p><form method="post" action="/oauth/start"><input type="hidden" name="csrf" value="' + escape(owner.csrf) + '"><button>Authorize Whop discovery</button></form><form method="post" action="/owner/logout"><input type="hidden" name="csrf" value="' + escape(owner.csrf) + '"><button>Sign out</button></form>');
+  return ownerPage('<p>Authorization: ' + escape(state.authorization) + '. Permission: read available bounties. Publishing stays disabled.</p><p>Complete Whop authorization within ' + STATE_MS / 60_000 + ' minutes of starting it.</p><form method="post" action="/oauth/start"><input type="hidden" name="csrf" value="' + escape(owner.csrf) + '"><button>Authorize Whop discovery</button></form><form method="post" action="/owner/logout"><input type="hidden" name="csrf" value="' + escape(owner.csrf) + '"><button>Sign out</button></form>');
 }
 async function start(request, env) {
   const {owner} = await csrfForm(request, env);
   const now = Date.now(), state = randomValue(), verifier = randomValue() + randomValue();
-  const encrypted = await seal(env, 'whop-oauth-state:v1', {verifier});
+  const expiresAt = now + STATE_MS;
+  const encrypted = await seal(env, 'whop-oauth-state:v1', {verifier, createdAt: now});
   const db = database(env);
-  await db.prepare('INSERT INTO oauth_states(owner,state_hash,session_hash,encrypted_payload,expires_at) VALUES(?,?,?,?,?) ON CONFLICT(owner) DO UPDATE SET state_hash=excluded.state_hash,session_hash=excluded.session_hash,encrypted_payload=excluded.encrypted_payload,expires_at=excluded.expires_at')
-    .bind('owner', await digest(state), owner.hash, encrypted, now + STATE_MS).run();
+  // Refresh only this already-authenticated, CSRF-validated session. Atomic
+  // conditional writes cannot resurrect a session revoked during this request.
+  const writes = await db.batch([
+    db.prepare('UPDATE oauth_sessions SET expires_at=? WHERE session_hash=? AND expires_at>?').bind(expiresAt, owner.hash, now),
+    db.prepare("INSERT INTO oauth_states(owner,state_hash,session_hash,encrypted_payload,expires_at) SELECT 'owner',?,?,?,? WHERE EXISTS(SELECT 1 FROM oauth_sessions WHERE session_hash=? AND expires_at=?) ON CONFLICT(owner) DO UPDATE SET state_hash=excluded.state_hash,session_hash=excluded.session_hash,encrypted_payload=excluded.encrypted_payload,expires_at=excluded.expires_at")
+      .bind(await digest(state), owner.hash, encrypted, expiresAt, owner.hash, expiresAt),
+  ]);
+  if (writes.length !== 2 || writes.some(write => write?.meta?.changes !== 1)) throw new SafeError('Owner session expired; sign in again', 401, 'owner-session-required');
   const url = new URL(AUTHORIZATION_ENDPOINT);
   url.search = new URLSearchParams({client_id: env.WHOP_CLIENT_ID, redirect_uri: env.PUBLIC_ORIGIN + '/oauth/callback', response_type: 'code', scope: REQUESTED_SCOPE, state, code_challenge: await digest(verifier), code_challenge_method: 'S256'}).toString();
-  return response('', 303, {'Location': url.href});
+  return response('', 303, {'Location': url.href, 'Set-Cookie': sessionCookie(cookieValue(request), STATE_MS / 1000)});
 }
 export async function readBytes(stream, maximum) {
   if (!stream) return new Uint8Array();
@@ -210,8 +225,8 @@ async function callback(request, env, fetcher) {
   if (!state || !/^[A-Za-z0-9_-]{43}$/.test(state)) throw new SafeError('Invalid or expired authorization state; start again', 400);
   const db = database(env);
   const stateRow = await db.prepare("DELETE FROM oauth_states WHERE owner='owner' AND state_hash=? AND session_hash=? AND expires_at>? RETURNING encrypted_payload").bind(await digest(state), owner.hash, Date.now()).first();
-  if (!stateRow) throw new SafeError('Invalid, expired or already-used authorization state; start again', 400);
-  if (url.searchParams.has('error')) return response('', 303, {Location: env.PUBLIC_ORIGIN + '/oauth/result'});
+  if (!stateRow) throw new SafeError('Invalid, expired or already-used authorization state; start again', 400, 'authorization-request-unavailable');
+  if (url.searchParams.has('error')) throw new SafeError('Whop returned an authorization error', 400, 'provider-denied');
   const code = url.searchParams.get('code');
   if (typeof code !== 'string' || code.length < 1 || code.length > 4096 || /\s/.test(code)) throw new SafeError('Invalid OAuth callback', 400);
   const payload = await unseal(env, 'whop-oauth-state:v1', stateRow.encrypted_payload);
@@ -221,7 +236,10 @@ async function callback(request, env, fetcher) {
     await db.batch([db.prepare('DELETE FROM whop_observations'), db.prepare('DELETE FROM whop_runs')]);
     const tokens = await requestTokens(env, {grant_type: 'authorization_code', code, redirect_uri: env.PUBLIC_ORIGIN + '/oauth/callback', client_id: env.WHOP_CLIENT_ID, code_verifier: payload.verifier}, fetcher);
     await saveTokens(env, db, claim.version, tokens, 'authorizing');
-  } catch (error) { await markFailed(db, claim.version); throw error; }
+  } catch (error) {
+    await markFailed(db, claim.version);
+    throw new SafeError('Whop token exchange could not be completed safely; start a new authorization', error instanceof SafeError ? error.status : 503, 'token-exchange-failed');
+  }
   // Remove the code/state from the browser's current URL before displaying status.
   return response('', 303, {'Location': env.PUBLIC_ORIGIN + '/'});
 }
@@ -334,12 +352,20 @@ export async function handleRequest(request, env, fetcher = fetch) {
       let ownerConfigured = true;
       try { configuration(env); } catch { ownerConfigured = false; }
       return json({status: 'ok', live_publishing: false, requested_scope: REQUESTED_SCOPE,
+        authorization_window_minutes: STATE_MS / 60_000,
         owner_configuration_complete: ownerConfigured, production_verified: false});
     }
     configuration(env);
     if (url.pathname !== '/oauth/callback' && url.pathname !== '/api/bounties' && url.search) throw new SafeError('Unexpected request parameters', 400);
     if (request.method === 'GET' && url.pathname === '/') return await home(request, env);
     if (request.method === 'GET' && url.pathname === '/oauth/result') return html('Whop authorization not completed', '<p>The authorization attempt was invalid, expired, cancelled or rejected. Its private callback parameters have been removed from this page. Start again from owner settings. Only the verified read-only bounty permission is requested; permissions are not expanded automatically.</p><p><a href="/">Return to owner settings</a></p>');
+    if (request.method === 'GET' && url.pathname.startsWith('/oauth/result/')) {
+      const reason = url.pathname.slice('/oauth/result/'.length);
+      if (Object.hasOwn(CALLBACK_RESULTS, reason)) {
+        const [title, message] = CALLBACK_RESULTS[reason];
+        return html(title, '<p>' + escape(message) + '</p><p><a href="/">Return to owner settings</a></p>');
+      }
+    }
     if (request.method === 'POST' && url.pathname === '/owner/login') return await login(request, env);
     if (request.method === 'POST' && url.pathname === '/owner/logout') {
       const {owner} = await csrfForm(request, env);
@@ -366,7 +392,10 @@ export async function handleRequest(request, env, fetcher = fetch) {
     return json({error: 'Route not found'}, 404);
   } catch (error) {
     // Always leave the callback URL, including error paths, without copying its query.
-    if (callbackAttempt) return response('', 303, {Location: '/oauth/result'});
+    if (callbackAttempt) {
+      const reason = error instanceof SafeError && Object.hasOwn(CALLBACK_RESULTS, error.callbackResult) ? '/' + error.callbackResult : '';
+      return response('', 303, {Location: '/oauth/result' + reason});
+    }
     // No raw errors, request URLs, provider bodies or credential values in logs.
     return json({error: error instanceof SafeError ? error.message : 'Private authorization storage or service failed; check deployment settings securely'}, error instanceof SafeError ? error.status : 503);
   }

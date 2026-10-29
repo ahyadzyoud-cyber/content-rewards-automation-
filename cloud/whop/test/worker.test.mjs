@@ -108,7 +108,7 @@ test('public health checks real database and key while owner configuration is in
   const {env} = setup();
   const response = await handleRequest(req(env, '/health'), {...env, WHOP_CLIENT_ID: '', OWNER_PASSWORD: ''}, forbiddenFetch);
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), {status: 'ok', live_publishing: false, requested_scope: 'bounty:basic:read', owner_configuration_complete: false, production_verified: false});
+  assert.deepEqual(await response.json(), {status: 'ok', live_publishing: false, requested_scope: 'bounty:basic:read', authorization_window_minutes: 30, owner_configuration_complete: false, production_verified: false});
   assert.equal((await handleRequest(req(env, '/health'), {...env, TOKEN_ENCRYPTION_KEY: ''}, forbiddenFetch)).status, 503);
   assert.equal((await handleRequest(req(env, '/health'), {...env, REWARDS_LIVE_PUBLISHING: 'true'}, forbiddenFetch)).status, 503);
 });
@@ -125,7 +125,7 @@ test('owner form documents preserve same-origin navigation Origin without exposi
   const callback = await handleRequest(req(env, '/oauth/callback?code=synthetic-untrusted'), env, forbiddenFetch);
   assert.equal(callback.status, 303);
   assert.equal(callback.headers.get('Referrer-Policy'), 'no-referrer');
-  assert.equal(callback.headers.get('Location'), '/oauth/result');
+  assert.equal(callback.headers.get('Location'), '/oauth/result/owner-session-required');
 });
 
 test('authorization forms allow only the owner and verified Whop redirect origins', async () => {
@@ -200,7 +200,7 @@ test('successful callback persists encrypted credentials and strips code from re
   assert.ok(!row.encrypted_payload.includes('access-one')); assert.ok(!row.encrypted_payload.includes('refresh-one'));
   assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM oauth_states').get().n, 0);
   const replay = await handleRequest(req(env, path, {headers: {Cookie: owner.cookie}}), env, exchange);
-  assert.equal(replay.status, 303); assert.equal(replay.headers.get('Location'), '/oauth/result'); assert.equal(calls, 1);
+  assert.equal(replay.status, 303); assert.equal(replay.headers.get('Location'), '/oauth/result/authorization-request-unavailable'); assert.equal(calls, 1);
   const state = await (await handleRequest(apiRequest(env, '/api/status'), env)).json();
   assert.equal(state.authorized, true); assert.equal(state.scope_verified, false); assert.equal(state.live_publishing, false);
   assert.ok(!JSON.stringify(state).includes('access-one'));
@@ -210,16 +210,103 @@ test('callback denial, wrong browser, expired state and invalid parameters all c
   const {env, sqlite} = setup(), owner = await ownerLogin(env), auth = await authorizeStart(env, owner);
   const state = auth.searchParams.get('state');
   const wrongBrowser = await handleRequest(req(env, '/oauth/callback?code=secret&state=' + state), env, forbiddenFetch);
-  assert.equal(wrongBrowser.headers.get('Location'), '/oauth/result');
+  assert.equal(wrongBrowser.headers.get('Location'), '/oauth/result/owner-session-required');
   assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM oauth_states').get().n, 1);
   const denied = await handleRequest(req(env, '/oauth/callback?error=access_denied&state=' + state, {headers: {Cookie: owner.cookie}}), env, forbiddenFetch);
-  assert.equal(denied.headers.get('Location'), env.PUBLIC_ORIGIN + '/oauth/result');
+  assert.equal(denied.headers.get('Location'), '/oauth/result/provider-denied');
   assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM oauth_states').get().n, 0);
   const another = await authorizeStart(env, owner); sqlite.prepare('UPDATE oauth_states SET expires_at=0').run();
   const expired = await handleRequest(req(env, '/oauth/callback?code=secret&state=' + another.searchParams.get('state'), {headers: {Cookie: owner.cookie}}), env, forbiddenFetch);
-  assert.equal(expired.headers.get('Location'), '/oauth/result');
+  assert.equal(expired.headers.get('Location'), '/oauth/result/authorization-request-unavailable');
   const duplicate = await handleRequest(req(env, '/oauth/callback?state=' + state + '&state=' + state + '&code=secret', {headers: {Cookie: owner.cookie}}), env, forbiddenFetch);
   assert.equal(duplicate.headers.get('Location'), '/oauth/result');
+});
+
+test('renewed authorization window survives cleanup and a 26-minute consent return', async context => {
+  const {env, sqlite} = setup(), owner = await ownerLogin(env), started = Date.now();
+  sqlite.prepare('UPDATE oauth_sessions SET expires_at=?').run(started + 60_000);
+  const start = await handleRequest(post(env, '/oauth/start', {csrf: owner.csrf}, owner.cookie), env, forbiddenFetch);
+  assert.equal(start.status, 303);
+  assert.equal(start.headers.get('Set-Cookie').split(';')[0], owner.cookie);
+  assert.ok(start.headers.get('Set-Cookie').includes('Max-Age=1800'));
+  assert.ok(start.headers.get('Set-Cookie').includes('Secure; HttpOnly; SameSite=Lax'));
+  const state = sqlite.prepare('SELECT * FROM oauth_states').get();
+  const session = sqlite.prepare('SELECT expires_at FROM oauth_sessions').get();
+  assert.equal(state.expires_at, session.expires_at);
+  assert.ok(state.expires_at >= started + 30 * 60_000 && state.expires_at < started + 30 * 60_000 + 1000);
+  await runScheduledSafely(env, forbiddenFetch, started + 15 * 60_000);
+  assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM oauth_states').get().n, 1);
+  context.mock.method(Date, 'now', () => started + 26 * 60_000);
+  let exchanges = 0;
+  const url = '/oauth/callback?code=fixture-delayed-code&state=' + new URL(start.headers.get('Location')).searchParams.get('state');
+  const result = await handleRequest(req(env, url, {headers: {Cookie: owner.cookie}}), env, () => {
+    exchanges++; return tokenResponse('delayed-access', 'delayed-refresh');
+  });
+  assert.equal(result.headers.get('Location'), env.PUBLIC_ORIGIN + '/');
+  assert.equal(exchanges, 1); assert.equal((await credentials(env)).status, 'ready');
+  const persisted = await unseal(env, 'whop-tokens:v1', (await credentials(env)).encrypted_payload);
+  assert.equal(persisted.refreshToken, 'delayed-refresh');
+});
+
+test('legacy ten-minute transaction is purged before a 26-minute return without a token exchange', async context => {
+  const {env, sqlite} = setup(), owner = await ownerLogin(env), started = Date.now();
+  const auth = await authorizeStart(env, owner);
+  sqlite.prepare('UPDATE oauth_states SET expires_at=?').run(started + 10 * 60_000);
+  await runScheduledSafely(env, forbiddenFetch, started + 15 * 60_000);
+  assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM oauth_states').get().n, 0);
+  context.mock.method(Date, 'now', () => started + 26 * 60_000);
+  const result = await handleRequest(req(env, '/oauth/callback?code=fixture-expired-code&state=' + auth.searchParams.get('state'), {headers: {Cookie: owner.cookie}}), env, forbiddenFetch);
+  assert.equal(result.headers.get('Location'), '/oauth/result/authorization-request-unavailable');
+  assert.equal((await credentials(env)).status, 'empty');
+  assert.equal((await credentials(env)).version, 0);
+});
+
+test('authorization start cannot resurrect a session revoked after CSRF validation', async () => {
+  const {env, sqlite} = setup(), owner = await ownerLogin(env), batch = env.DB.batch;
+  env.DB.batch = async statements => { sqlite.prepare('DELETE FROM oauth_sessions').run(); return batch(statements); };
+  const result = await handleRequest(post(env, '/oauth/start', {csrf: owner.csrf}, owner.cookie), env, forbiddenFetch);
+  assert.equal(result.status, 401);
+  assert.equal(result.headers.get('Set-Cookie'), null);
+  assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM oauth_sessions').get().n, 0);
+  assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM oauth_states').get().n, 0);
+});
+
+test('wrong CSRF cannot extend the authorization session or create pending state', async () => {
+  const {env, sqlite} = setup(), owner = await ownerLogin(env);
+  const before = sqlite.prepare('SELECT expires_at FROM oauth_sessions').get().expires_at;
+  const result = await handleRequest(post(env, '/oauth/start', {csrf: 'wrong'}, owner.cookie), env, forbiddenFetch);
+  assert.equal(result.status, 403);
+  assert.equal(result.headers.get('Set-Cookie'), null);
+  assert.equal(sqlite.prepare('SELECT expires_at FROM oauth_sessions').get().expires_at, before);
+  assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM oauth_states').get().n, 0);
+});
+
+test('token-exchange failure gives a safe reason and never retries the consumed code', async () => {
+  const {env} = setup(), owner = await ownerLogin(env), auth = await authorizeStart(env, owner);
+  let calls = 0;
+  const exchange = async () => { calls++; return new Response(JSON.stringify({error: 'fixture-private-upstream', access_token: 'fixture-private-token'}), {status: 403}); };
+  const url = '/oauth/callback?code=fixture-private-code&state=' + auth.searchParams.get('state');
+  const result = await handleRequest(req(env, url, {headers: {Cookie: owner.cookie}}), env, exchange);
+  assert.equal(result.headers.get('Location'), '/oauth/result/token-exchange-failed');
+  assert.equal((await credentials(env)).status, 'reauthorization_required');
+  const message = await handleRequest(req(env, result.headers.get('Location')), env, forbiddenFetch);
+  const text = await message.text();
+  assert.ok(text.includes('Whop token exchange was not completed'));
+  assert.ok(!text.includes('fixture-private'));
+  await handleRequest(req(env, url, {headers: {Cookie: owner.cookie}}), env, exchange);
+  assert.equal(calls, 1);
+});
+
+test('safe callback result pages are fixed messages and retain no-referrer/no-store', async () => {
+  const {env} = setup();
+  for (const reason of ['owner-session-required', 'authorization-request-unavailable', 'provider-denied', 'token-exchange-failed']) {
+    const result = await handleRequest(req(env, '/oauth/result/' + reason), env, forbiddenFetch);
+    assert.equal(result.status, 200);
+    assert.equal(result.headers.get('Referrer-Policy'), 'no-referrer');
+    assert.equal(result.headers.get('Cache-Control'), 'no-store');
+  }
+  assert.equal((await handleRequest(req(env, '/oauth/result/untrusted'), env, forbiddenFetch)).status, 404);
+  assert.equal((await handleRequest(req(env, '/oauth/result/provider-denied?error_description=private'), env, forbiddenFetch)).status, 400);
 });
 
 test('rotation is durably claimed before HTTP, concurrent callers cannot consume refresh twice, restart reads new token', async () => {

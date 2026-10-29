@@ -337,3 +337,53 @@ a later verified read returnedHTTP200 with the corrected exact three-target
 policy and `Referrer-Policy: same-origin`. No new environment Publish action is
 required. Reopen the owner homepage to fetch its new CSP before retrying
 **Authorize Whop discovery**; do not merely resubmit the old form document.
+
+
+## Completed-consent callback expiry correction — 2026-10-29
+
+The reported failure occurred before token exchange. Production D1 remained
+`empty`, credential version/generation remained zero, and no pending state
+remained. Read-only Cloudflare analytics showed all invocations successful with
+zero errors and zero outbound subrequests. The last pre-return owner activity
+was followed by approximately 26 minutes at Whop; scheduled cleanup ran between
+that activity and the return. With the old 10-minute PKCE-state TTL, even the
+latest possible transaction had expired before cleanup and could not pass the
+callback lookup. No token request was attempted, so changing token formatting,
+client secrets or cookie SameSite policy would not address this failure.
+
+Official Whop documentation and issuer metadata were checked again: the query
+`code`/`state` callback and JSON PKCE token exchange remain correct. Real
+Chromium tests confirmed that both cross-site GET returns and provider
+POST→303→GET returns send the existing SameSite=Lax owner cookie correctly.
+
+The transaction now has a bounded 30-minute lifetime, matching the existing
+owner-session window. Only an already-authenticated, exact-Origin and
+CSRF-validated `/oauth/start` action refreshes that same session cookie and its
+server expiry. Session extension and state insertion are conditional atomic D1
+writes; revocation races cannot recreate a logged-out session. The browser
+cookie remains the same value with Secure/HttpOnly/SameSite=Lax and Max-Age1800.
+No long-lived credentials, provider scopes or keys were changed.
+
+Callbacks still require matching browser-bound, unexpired, single-use state.
+Expired/missing-owner, unavailable request, provider denial and token-exchange
+failure now redirect to fixed whitelisted result paths with safe messages.
+Codes, state, provider bodies and credentials never enter those paths or pages;
+no-referrer and no-store remain enforced. Unknown reason paths and unexpected
+query parameters are rejected. There is no new database table or schema change.
+
+Targeted verification passed33 Worker tests and10 real Chromium tests. New
+regressions cover a 25-minute-old login followed by26 minutes of provider
+verification, scheduled cleanup midway, one JSON code exchange and encrypted
+credential persistence. They also cover legacy 10-minute expiry reproduction,
+31-minute expiry, missing/wrong state, revoked sessions, wrong CSRF, replay
+without a second exchange, preservation of already-ready ciphertext, and safe
+failure pages. Browser provider requests and token responses are isolated
+fixtures; no real account consent or code exchange is claimed by these tests.
+
+The existing Free Worker received a code-only update. Before/after checks
+preserved D1 binding, secret binding names, exact public-variable hash and all
+Cloudflare secrets. No secret update, schema change or database-record mutation
+was sent during deployment. Existing expired records had already been removed
+by the normal scheduled cleanup; no expired code or PKCE transaction was
+resurrected. Owner authorization must start a fresh transaction after deployment.
+Publishing remains false and no paid service was activated.
