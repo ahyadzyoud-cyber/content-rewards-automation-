@@ -104,3 +104,15 @@ permitted API automation, approved footage and first-video review remain
 separate prerequisites for a live business. The separate Docker worker remains
 the production-host preparation path once those prerequisites and persistent
 private state are available.
+
+
+On 2026-10-29, actual cron-triggered runs
+[40799543010](https://github.com/ahyadzyoud-cyber/content-rewards-automation-/actions/runs/40799543010)
+and
+[40834679284](https://github.com/ahyadzyoud-cyber/content-rewards-automation-/actions/runs/40834679284)
+were verified successful. The public checkpoint reached sequence 4 and restored
+`previous_run_id=40799543010`. Thus the earlier first-cron-pending limitation is
+resolved. The report still correctly contains zero campaigns,
+`blocked_no_permitted_feed`, `live_publishing=false`, and
+`production_verified=false`; recurrence alone does not make discovery or the
+business live.

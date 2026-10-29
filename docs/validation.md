@@ -156,3 +156,18 @@ renewal was fabricated. The existing environment draft preserves optional
 The save requires owner review/save/**Publish** to apply. Publication does not
 itself deploy the OAuth broker. Live publishing remains false, and no paid
 service or public posting was activated.
+
+
+The current GitHub observer status was also checked read-only after resumption:
+two actual `schedule` runs, 40799543010 and 40834679284, succeeded. The remote
+checkpoint reached sequence 4 with the first scheduled run as predecessor.
+Scheduled execution/persistence is now verified; permitted discovery remains
+blocked with zero campaigns, and live publishing remains false.
+
+
+The combined source commit `5f898211c4a6e018c332e5dfa54e9c781d2e7561`
+passed its configured GitHub Checks workflow
+[40856108106](https://github.com/ahyadzyoud-cyber/content-rewards-automation-/actions/runs/40856108106),
+including Python tests/lint/build and the added Node broker security suite.
+The API confirms success; detailed log download is blocked by the current
+network policy, so no additional remote test-count claim is inferred.
