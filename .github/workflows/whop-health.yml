@@ -22,6 +22,7 @@ jobs:
         run: |
           python - <<'PY'
           import json
+          import re
           from urllib.error import HTTPError
           from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
@@ -38,13 +39,20 @@ jobs:
               diagnostic = {'stage': 'health', 'error_type': type(error).__name__}
               if isinstance(error, HTTPError):
                   diagnostic['http_status'] = error.code
+                  diagnostic['server'] = error.headers.get('Server', '')[:100]
+                  diagnostic['content_type'] = error.headers.get('Content-Type', '')[:100]
+                  diagnostic['edge_challenge'] = error.headers.get('cf-mitigated', '')[:100]
                   # This deployment's errors are sanitized; never emit unknown HTML.
+                  raw = error.read(8192).decode('utf-8', errors='replace')
                   try:
-                      body = json.load(error)
+                      body = json.loads(raw)
                       if isinstance(body, dict) and isinstance(body.get('error'), str):
                           diagnostic['worker_error'] = body['error'][:200]
                   except Exception:
-                      pass
+                      title = re.search(r'<title[^>]*>([^<]{0,120})', raw, re.IGNORECASE)
+                      diagnostic['public_error_page_title'] = title.group(1) if title else ''
+                      diagnostic['provider_error_numbers'] = re.findall(r'(?:error code:|Error)\s*(\d{3,5})', raw, re.IGNORECASE)
+                      diagnostic['plain_forbidden'] = raw.strip().lower() == 'forbidden'
               print('::error title=Whop HTTPS diagnostic::' + json.dumps(diagnostic))
               raise SystemExit(1)
 
