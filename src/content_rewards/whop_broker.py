@@ -4,7 +4,7 @@ import json
 import httpx
 
 from .config import Settings
-from .whop import WhopError, _token, broker_origin
+from .whop import USER_AGENT, WhopError, _token, broker_origin
 
 
 async def broker_status(settings: Settings, *, client: httpx.AsyncClient | None = None) -> dict:
@@ -15,7 +15,7 @@ async def broker_status(settings: Settings, *, client: httpx.AsyncClient | None 
     own_client = client is None
     http = client or httpx.AsyncClient(timeout=30, follow_redirects=False)
     try:
-        async with http.stream("GET", origin + "/api/status", headers={"Authorization": "Bearer " + token},
+        async with http.stream("GET", origin + "/api/status", headers={"Authorization": "Bearer " + token, "User-Agent": USER_AGENT},
                                follow_redirects=False, timeout=30) as response:
             if response.status_code in {401, 403}:
                 raise WhopError("Authorize the owner broker through secure settings")

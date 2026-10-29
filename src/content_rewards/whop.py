@@ -18,6 +18,7 @@ from .integrations import IntegrationError
 
 API_BASE = "https://api.whop.com/api/v1"
 API_VERSION_DATE = "2026-10-28"
+USER_AGENT = "ContentRewardsAutomation/0.1"
 MAX_RESPONSE_BYTES = 2_000_000
 DOCUMENTED_GOALS = {"clipping", "ugc_content"}
 
@@ -160,6 +161,7 @@ class WhopBounties:
                 async with client.stream(
                     "GET", self._base + "/bounties", params=params,
                     headers={"Authorization": "Bearer " + self._access_token,
+                             "User-Agent": USER_AGENT,
                              "Api-Version-Date": self.api_version_date},
                     follow_redirects=False, timeout=30,
                 ) as response:

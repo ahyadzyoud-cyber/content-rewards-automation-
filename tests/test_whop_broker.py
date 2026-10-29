@@ -21,6 +21,7 @@ async def test_broker_mode_routes_only_broker_token_and_keeps_fixed_reward_model
     def respond(request):
         assert str(request.url).startswith("https://worker.owner.workers.dev/api/bounties?")
         assert request.headers["Authorization"] == "Bearer private-broker-token"
+        assert request.headers["User-Agent"] == "ContentRewardsAutomation/0.1"
         assert "private-whop-access-token" not in repr(request.headers)
         assert request.url.params["country"] == "JO"
         assert request.url.params["business_goal_type"] == "ugc_content"
@@ -53,6 +54,7 @@ async def test_status_drops_arbitrary_private_fields_and_nonboolean_proof():
     def respond(request):
         assert request.url.path == "/api/status"
         assert request.headers["Authorization"] == "Bearer broker-private"
+        assert request.headers["User-Agent"] == "ContentRewardsAutomation/0.1"
         assert "broker-private" not in str(request.url)
         return httpx.Response(200, json={"authorized": True, "scope_verified": "true", "live_publishing": False,
                                          "account_id": "private-id", "access_token": "upstream-private"})

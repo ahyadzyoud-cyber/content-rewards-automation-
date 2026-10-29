@@ -27,8 +27,9 @@ jobs:
           from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
           origin = 'https://content-rewards-whop.content-rewards-dc8a4aba9226.workers.dev'
+          headers = {'User-Agent': 'ContentRewardsAutomation/0.1', 'Accept': 'application/json'}
           try:
-              with urlopen(origin + '/health', timeout=30) as response:
+              with urlopen(Request(origin + '/health', headers=headers), timeout=30) as response:
                   assert response.status == 200
                   health = json.load(response)
               assert health['status'] == 'ok'
@@ -61,7 +62,7 @@ jobs:
                   return None
 
           try:
-              build_opener(NoRedirect).open(Request(origin + '/oauth/callback'), timeout=30)
+              build_opener(NoRedirect).open(Request(origin + '/oauth/callback', headers=headers), timeout=30)
               raise AssertionError('A callback without owner state must redirect safely')
           except HTTPError as response:
               valid = (response.code == 303
