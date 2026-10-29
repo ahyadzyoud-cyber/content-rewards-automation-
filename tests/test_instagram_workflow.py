@@ -9,6 +9,7 @@ import pytest
 
 from content_rewards import feeds
 from content_rewards.config import Settings
+from content_rewards.integrations import IntegrationError
 from content_rewards.service import Blocked, Workflow
 
 RENDERED = b"test-rendered-instagram-video"
@@ -21,6 +22,9 @@ class FakeInstagram:
     async def verify_account(self):
         self.calls.append("verify")
         return {"id": "instagram-account"}
+
+    async def require_publishing_capacity(self):
+        self.calls.append("capacity")
 
     async def create_container(self, video_url, caption):
         self.calls.append("create")
@@ -103,7 +107,7 @@ async def test_exact_hosted_bytes_verified_before_container_and_publish_once(ins
     assert result["state"] == "published"
     assert result["remote_id"] == "instagram-media"
     assert result["container_id"] == "container1"
-    assert publisher.calls == ["verify", "create", "status", "publish"]
+    assert publisher.calls == ["verify", "capacity", "create", "status", "capacity", "publish"]
     assert len(requests) == 1
     assert str(requests[0].url) == approved["video_url"]
     with pytest.raises(Blocked, match="requires approval"):
@@ -233,8 +237,64 @@ async def test_in_progress_container_is_polled_before_publication(instagram_work
 
     publisher = ProcessingPublisher()
     assert (await workflow.publish(job["id"], publisher))["state"] == "published"
-    assert publisher.calls == ["verify", "create", "status", "status", "publish"]
+    assert publisher.calls == ["verify", "capacity", "create", "status", "status", "capacity", "publish"]
     assert sleeps == [10]
+
+
+@pytest.mark.parametrize("error", ["exhausted", "unavailable or invalid"])
+async def test_capacity_blocker_before_container_leaves_approval_and_no_provider_writes(
+        instagram_workflow, monkeypatch, error):
+    workflow, job = instagram_workflow
+    approve(workflow, job)
+    mock_hosted_media(monkeypatch)
+
+    class NoCapacity(FakeInstagram):
+        async def require_publishing_capacity(self):
+            self.calls.append("capacity")
+            raise IntegrationError("Instagram publishing capacity is " + error)
+
+    publisher = NoCapacity()
+    with pytest.raises(IntegrationError, match=error):
+        await workflow.publish(job["id"], publisher)
+    assert publisher.calls == ["verify", "capacity"]
+    assert workflow.store.get("job", job["id"])["state"] == "approved"
+
+
+async def test_capacity_consumed_during_processing_prevents_final_publish(instagram_workflow, monkeypatch):
+    workflow, job = instagram_workflow
+    approve(workflow, job)
+    mock_hosted_media(monkeypatch)
+
+    class CapacityConsumed(FakeInstagram):
+        async def require_publishing_capacity(self):
+            self.calls.append("capacity")
+            if self.calls.count("capacity") == 2:
+                raise IntegrationError("Instagram publishing capacity is exhausted")
+
+    publisher = CapacityConsumed()
+    with pytest.raises(Blocked, match="reconcile|uncertain"):
+        await workflow.publish(job["id"], publisher)
+    assert publisher.calls == ["verify", "capacity", "create", "status", "capacity"]
+    assert workflow.store.get("job", job["id"])["state"] == "needs_reconciliation"
+
+
+async def test_revocation_during_final_capacity_check_blocks_publish(instagram_workflow, monkeypatch):
+    workflow, job = instagram_workflow
+    approve(workflow, job)
+    mock_hosted_media(monkeypatch)
+
+    class RevokingCapacity(FakeInstagram):
+        async def require_publishing_capacity(self):
+            self.calls.append("capacity")
+            if self.calls.count("capacity") == 2:
+                campaign = workflow.store.get("campaign", job["campaign_id"])
+                campaign["rights_verified"] = False
+                workflow.store.put("campaign", campaign["id"], campaign)
+
+    publisher = RevokingCapacity()
+    with pytest.raises(Blocked):
+        await workflow.publish(job["id"], publisher)
+    assert "publish" not in publisher.calls
 
 
 async def test_revocation_during_container_processing_blocks_final_publication(instagram_workflow, monkeypatch):

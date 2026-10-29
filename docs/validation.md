@@ -445,3 +445,60 @@ were preserved. No secret update, database mutation, schema change, public
 client-mode change, additional compatibility flag or paid activation was sent.
 Publishing remains false. A fresh owner authorization is required to issue a
 new code after this deployed fix; no setup changes are required.
+
+
+## Authorized global discovery and private owner review
+
+After the owner completed consent, the existing broker returned authenticated
+HTTP 200 status: authorization ready, the exact read-only bounty scope usable,
+five durably persisted refresh rotations, two private discovery snapshots and a
+successful scheduled renewal check. The latest scheduled renewal was at 23:30
+Asia/Amman on 2026-10-29. Complete fresh clipping and UGC listings returned two
+real open fixed-reward opportunities admitting Jordan residents. No raw
+account-visible record, advertiser identity or private brief is committed here.
+The official country filter includes worldwide offers admitting that residence;
+removing it is not necessary for global discovery.
+
+A read-only dry run assessed the real observations and prepared an ignored,
+private review packet. Neither opportunity passed the payout, rights,
+new-account and workflow-permission gates. Their mandatory livestream steps
+cannot be represented as unattended compliance. No approved campaign footage
+was downloaded, no real video could be prepared, and no job, provider submission,
+publication, earnings or payout record was created. Whop's payout guide lists
+Jordan but actual owner KYC and an available method remain unverified. Its
+conditional $10 withdrawal minimum is separate from campaign ranking: smaller
+rewards remain queued. Content Rewards CPM access remains separate; no permitted
+Vyro integration or other verified campaign is invented from marketing pages.
+
+The existing free Worker now serves a private owner opportunities page using
+only encrypted, current-authorization-generation scheduled snapshots. Its
+provider briefs are escaped; timestamps, incomplete/stale observations and
+verification weaknesses are explicit. Missing/expired owner sessions redirect
+to the existing sign-in page without private content. Four focused regression
+cases passed, including XSS, secret/metadata exclusion, no provider requests or
+DB writes, old-generation exclusion, and retention of small rewards.
+
+The production code-only update passed the Workers Free preflight and verified
+that runtime settings, public variables, private bindings and schedules were
+unchanged. The helper sent no secret values, D1 query, schema migration,
+subdomain change or schedule write. Live HTTPS health returned 200, publication
+false, and the private page returned a clean no-store/no-referrer sign-in
+redirect. Existing authorization and the five rotations remained intact after
+upload. The private broker also successfully decrypted both existing scheduled
+snapshots after upload; required owner-cap fields parsed against the real
+records without exporting credentials or key material. Owner-authenticated
+rendering is tested with isolated encrypted fixtures; no real owner password or
+session was obtained to impersonate a login.
+
+Optional fixed-bounty economic scenarios now require separate fresh reviews of
+cost, time and acceptance probability. Missing values remain unknown, estimates
+are not earnings, and a separate economic rank does not remove blocked, small or
+negative-scenario offers from the evidence queue. Instagram's official account
+quota is read before container creation and again after processing; unknown or
+exhausted capacity prevents publication, and approval/rights checks run after
+the final new network await. Personal winner-cap checks additionally reject
+unknown or exhausted owner allowances despite available global slots, without inferring this owner's
+pending proofs from global counts. These changes passed 118 Whop
+reader/ranking/workflow and 147 Instagram/adapter targeted cases. The source-only
+code-update path passed 42 mocked deployment cases. Actual social consent, quota and token
+renewal remain unverified without owner authorization.

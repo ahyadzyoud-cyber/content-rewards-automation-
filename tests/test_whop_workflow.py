@@ -9,7 +9,8 @@ async def test_missing_whop_authorization_blocks_before_network(tmp_path, monkey
     async def unexpected(*args, **kwargs):
         pytest.fail("Missing credentials must not initiate Whop discovery")
     monkeypatch.setattr(WhopBounties, "list_open_bounties", unexpected)
-    flow = Workflow(Settings(database=tmp_path / "db.sqlite", whop_token=""))
+    flow = Workflow(Settings(database=tmp_path / "db.sqlite", whop_token="",
+                             whop_broker_url="", whop_broker_token=""))
     with pytest.raises(Blocked, match="only bounty:basic"):
         await flow.discover_whop()
     assert not flow.store.list("whop_discovery")
@@ -22,6 +23,8 @@ async def test_whop_discovery_keeps_fixed_rewards_separate_and_private(tmp_path,
                 "country_filter": "JO", "pagination_complete": True, "observations": [{
                     "id": "bnty_fixture", "title": "Synthetic bounty", "currency": "USD",
                     "gross_reward_amount": 10, "spots_remaining": 1, "provider_reports_country_match": True,
+                    "accepted_submissions_limit": 10, "accepted_submissions_per_user_limit": 1,
+                    "viewer_accepted_submissions_count": 0,
                     "new_account_eligibility_verified": False, "raw": {"private_brief": "not-for-public-checkpoints"},
                 }]}
     monkeypatch.setattr(WhopBounties, "list_open_bounties", listed)

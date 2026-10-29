@@ -39,6 +39,8 @@ class Provider:
         self.uploads = []
         self.fail_upload = False
         self.fail_schedule_verification = False
+        self.runtime = {"compatibility_date": "2026-10-28", "compatibility_flags": [],
+                        "logpush": False, "observability": {"enabled": False}}
 
     def __call__(self, request):
         self.requests.append(request)
@@ -59,7 +61,7 @@ class Provider:
             if path == prefix + "/d1/database":
                 return envelope(self.databases)
             if path.endswith("/settings"):
-                return envelope({"bindings": self.bindings})
+                return envelope({"bindings": self.bindings} | self.runtime)
             if path.endswith("/subdomain"):
                 return envelope(self.subdomain)
             if path.endswith("/schedules"):
@@ -83,11 +85,11 @@ class Provider:
             metadata = json.loads(parts["metadata"].get_payload(decode=True))
             assert parts["worker.mjs"].get_content_type() == "application/javascript+module"
             assert metadata["main_module"] == "worker.mjs"
-            assert metadata["logpush"] is False and metadata["observability"] == {"enabled": False}
             assert metadata["keep_bindings"] == ["secret_text"]
             self.uploads.append(metadata)
             preserved = [] if self.bindings is None else [binding for binding in self.bindings if binding["type"] == "secret_text"]
             self.bindings = metadata["bindings"] + preserved
+            self.runtime.update({key: metadata[key] for key in self.runtime if key in metadata})
             if self.fail_upload:
                 # Simulate an accepted upload with an uncertain HTTP result.
                 raise httpx.ReadTimeout("private-upstream-token", request=request)
@@ -105,6 +107,12 @@ def run(provider, path, *, apply=False, **environment):
     with httpx.Client(transport=httpx.MockTransport(provider)) as client:
         return deploy.deploy({"CLOUDFLARE_API_TOKEN": TOKEN} | environment,
                              apply=apply, client=client, state_path=path)
+
+
+def update(provider, path, **environment):
+    with httpx.Client(transport=httpx.MockTransport(provider)) as client:
+        return deploy.update_code({"CLOUDFLARE_API_TOKEN": TOKEN} | environment,
+                                  client=client, state_path=path)
 
 
 def test_missing_token_is_blocked_before_network(tmp_path):
@@ -273,3 +281,124 @@ def test_deployed_schema_is_additive_and_preserves_existing_encrypted_records():
         database.executescript(schema)
         assert database.execute("SELECT encrypted_payload,status,version FROM whop_credentials").fetchone() == (
             "encrypted-token-fixture", "ready", 3)
+
+
+def test_code_update_only_uploads_source_and_preserves_every_binding_setting_schedule_and_state(tmp_path):
+    provider = Provider()
+    state = tmp_path / "state.json"
+    run(provider, state, apply=True)
+    provider.bindings.extend([
+        {"name": "OWNER_PASSWORD", "type": "secret_text", "text": "private-owner-secret"},
+        {"name": "EXTRA_SECRET", "type": "secret_text", "text": "private-extra-secret"},
+        {"name": "EXTRA_VALUE", "type": "plain_text", "text": "existing-value"},
+        {"name": "EXTRA_DB", "type": "d1", "id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"},
+    ])
+    provider.runtime = {"compatibility_date": "2026-10-27", "compatibility_flags": ["nodejs_compat"],
+                        "logpush": True, "observability": {"enabled": True, "head_sampling_rate": 0.01}}
+    provider.schedules = [{"cron": "*/30 * * * *", "created_on": "2026-10-28T00:00:00Z"},
+                          {"cron": "0 3 * * *", "created_on": "2026-10-28T01:00:00Z"}]
+    original = json.loads(json.dumps({"bindings": provider.bindings, "runtime": provider.runtime,
+                                      "schedules": provider.schedules}))
+    state_bytes = state.read_bytes()
+    state_mtime = state.stat().st_mtime_ns
+    provider.requests.clear()
+    result = update(provider, state, WHOP_CLIENT_ID="must-not-replace-existing-app",
+                    REWARDS_LIVE_PUBLISHING="true")
+    assert result["status"] == "code_updated" and result["free_account_verified"]
+    assert result["authorization_complete"] is None  # No credential or D1 query was made.
+    assert result["settings_unchanged_verified"] and result["schedules_unchanged_verified"]
+    assert result["database_mutations_sent"] is False and result["secret_values_sent"] is False
+    assert state.read_bytes() == state_bytes and state.stat().st_mtime_ns == state_mtime
+    assert sorted(provider.bindings, key=lambda item: item["name"]) == sorted(original["bindings"], key=lambda item: item["name"])
+    assert provider.runtime == original["runtime"] and provider.schedules == original["schedules"]
+    writes = [request for request in provider.requests if request.method != "GET"]
+    assert len(writes) == 1 and writes[0].method == "PUT"
+    assert writes[0].url.path.endswith("/workers/scripts/" + deploy.WORKER_NAME)
+    assert not any(request.url.path.endswith("/query") for request in provider.requests)
+    assert sum(request.url.path.endswith("/schedules") for request in provider.requests) == 2
+    assert all(binding["type"] != "secret_text" for binding in provider.uploads[-1]["bindings"])
+    rendered = writes[0].content.decode() + json.dumps(result)
+    assert all(value not in rendered for value in (TOKEN, "private-owner-secret", "private-extra-secret"))
+
+
+@pytest.mark.parametrize("phase", ["database_ready", "uploaded", "missing"])
+def test_code_update_requires_completed_saved_existing_deployment_without_initializing_anything(tmp_path, phase):
+    provider = Provider()
+    state = tmp_path / "state.json"
+    if phase != "missing":
+        run(provider, state, apply=True)
+        saved = json.loads(state.read_text())
+        saved["phase"] = phase
+        state.write_text(json.dumps(saved))
+    provider.requests.clear()
+    with pytest.raises(deploy.DeploymentBlocked, match="saved completed deployment"):
+        update(provider, state)
+    assert all(request.method == "GET" for request in provider.requests)
+
+
+@pytest.mark.parametrize("binding", [
+    {"name": "EXTRA", "type": "kv_namespace", "namespace_id": "private-namespace"},
+    {"name": "EXTRA", "type": "plain_text", "text": None},
+    {"name": "EXTRA", "type": "d1", "id": "invalid"},
+    {"name": "EXTRA", "type": "service", "service": "unverified-worker"},
+])
+def test_code_update_fails_closed_on_unsupported_bindings_before_upload(tmp_path, binding):
+    provider = Provider()
+    state = tmp_path / "state.json"
+    run(provider, state, apply=True)
+    provider.bindings.append(binding)
+    provider.requests.clear()
+    with pytest.raises(deploy.DeploymentBlocked, match="unsupported existing Worker binding"):
+        update(provider, state)
+    assert all(request.method == "GET" for request in provider.requests)
+
+
+@pytest.mark.parametrize("live_value", ["true", "False", "", None])
+def test_code_update_requires_existing_live_publishing_disabled(tmp_path, live_value):
+    provider = Provider()
+    state = tmp_path / "state.json"
+    run(provider, state, apply=True)
+    binding = next(binding for binding in provider.bindings if binding["name"] == "REWARDS_LIVE_PUBLISHING")
+    binding["text"] = live_value
+    provider.requests.clear()
+    with pytest.raises(deploy.DeploymentBlocked, match="REWARDS_LIVE_PUBLISHING=false|unsupported"):
+        update(provider, state)
+    assert all(request.method == "GET" for request in provider.requests)
+
+
+@pytest.mark.parametrize("mutation", ["binding", "secret_name", "runtime", "schedule"])
+def test_code_update_checks_unchanged_readback_without_attempting_repair(tmp_path, mutation):
+    provider = Provider()
+    state = tmp_path / "state.json"
+    run(provider, state, apply=True)
+    state_bytes = state.read_bytes()
+    provider.requests.clear()
+
+    def mutated(request):
+        response = provider(request)
+        if request.method == "PUT":
+            if mutation == "binding":
+                next(binding for binding in provider.bindings if binding["name"] == "WHOP_CLIENT_ID")["text"] = "changed"
+            elif mutation == "secret_name":
+                provider.bindings.append({"name": "UNEXPECTED_SECRET", "type": "secret_text"})
+            elif mutation == "runtime":
+                provider.runtime["compatibility_flags"] = ["unexpected_flag"]
+            else:
+                provider.schedules = []
+        return response
+
+    with pytest.raises(deploy.DeploymentBlocked, match="settings or schedules did not match"):
+        update(mutated, state)
+    assert state.read_bytes() == state_bytes
+    assert [request.method for request in provider.requests if request.method != "GET"] == ["PUT"]
+
+
+def test_code_update_paid_account_is_blocked_before_upload(tmp_path):
+    provider = Provider()
+    state = tmp_path / "state.json"
+    run(provider, state, apply=True)
+    provider.subscriptions = [{"state": "Provisioned", "price": 5, "rate_plan": {"id": "workers_paid"}}]
+    provider.requests.clear()
+    with pytest.raises(deploy.DeploymentBlocked, match="paid, trial, or unknown"):
+        update(provider, state)
+    assert all(request.method == "GET" for request in provider.requests)

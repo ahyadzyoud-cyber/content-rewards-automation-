@@ -226,6 +226,7 @@ class Workflow:
             raise Blocked("Authorized account does not match the approved publication target")
         if job["platform"] == "instagram":
             await self._verify_instagram_media(job)
+            await publisher.require_publishing_capacity()
         # Verify after every network await and freeze the bytes that will actually be uploaded.
         campaign = self.campaign_for(job["campaign_id"], job["platform"])
         self._check_material(job, campaign)
@@ -266,6 +267,8 @@ class Workflow:
                     await asyncio.sleep(10)
                 else:
                     raise Blocked("Instagram container timed out; reconcile its status before retrying")
+                # Other permitted apps can consume account quota during processing.
+                await publisher.require_publishing_capacity()
                 campaign = self.campaign_for(job["campaign_id"], job["platform"])
                 self._check_material(job, campaign)
                 if (self._digest(job, file_hash(staged_path)) != job["approval"]["digest"]

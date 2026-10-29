@@ -3,7 +3,8 @@
 No SDK, browser login, secret output, subscription mutation, token export, or paid
 resource is used. API bindings may be proxy-backed; pass them only to their
 configured HTTPS destination. Existing encrypted state and secret bindings are
-preserved. Run --preflight first; --apply is deliberately explicit.
+preserved. Run --preflight first; --apply initializes resources, while
+--update-code updates an existing deployment without schema or settings writes.
 
 API contracts: https://github.com/cloudflare/api-schemas/blob/main/openapi.yaml
 and https://github.com/cloudflare/cloudflare-python/tree/main/src/cloudflare.
@@ -12,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 import json
 import math
 import os
@@ -288,15 +290,95 @@ def deploy(env: dict, *, apply: bool, client: httpx.Client, state_path: Path = S
                      "next_action": "Set OWNER_PASSWORD securely in the Cloudflare Worker dashboard, register the exact callback in Whop, and configure its nonsecret WHOP_CLIENT_ID"}
 
 
+def _code_metadata(settings: object) -> tuple[dict, str]:
+    """Copy supported runtime settings; fingerprint values without exposing them."""
+    if not isinstance(settings, dict) or not isinstance(settings.get("bindings"), list):
+        raise DeploymentBlocked("Existing Worker settings were malformed; no code update was verified")
+    bindings, names, secret_names = [], set(), []
+    for binding in settings["bindings"]:
+        if (not isinstance(binding, dict) or not isinstance(binding.get("name"), str)
+                or not binding["name"] or binding["name"] in names):
+            raise DeploymentBlocked("Existing Worker bindings were malformed; no code update was verified")
+        names.add(binding["name"])
+        kind = binding.get("type")
+        if kind == "secret_text":
+            # GET may return secret metadata. Never resend a secret value.
+            secret_names.append(binding["name"])
+            continue
+        if kind == "plain_text" and isinstance(binding.get("text"), str):
+            bindings.append(dict(binding))
+        elif kind == "d1" and isinstance(binding.get("id"), str) and DATABASE.fullmatch(binding["id"]):
+            bindings.append(dict(binding))
+        else:
+            raise DeploymentBlocked("An unsupported existing Worker binding prevents a code-only update")
+    by_name = {binding["name"]: binding for binding in bindings}
+    if (by_name.get("REWARDS_LIVE_PUBLISHING", {}).get("type") != "plain_text"
+            or by_name["REWARDS_LIVE_PUBLISHING"].get("text") != "false"):
+        raise DeploymentBlocked("The existing Worker must keep REWARDS_LIVE_PUBLISHING=false before a code-only update")
+    if (not isinstance(settings.get("compatibility_date"), str)
+            or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", settings["compatibility_date"])
+            or ("compatibility_flags" in settings and (not isinstance(settings["compatibility_flags"], list)
+                or any(not isinstance(flag, str) for flag in settings["compatibility_flags"])))
+            or ("logpush" in settings and type(settings["logpush"]) is not bool)
+            or ("observability" in settings and settings["observability"] is not None
+                and not isinstance(settings["observability"], dict))):
+        raise DeploymentBlocked("Existing Worker runtime settings were malformed; no code update was verified")
+    metadata = {key: settings[key] for key in (
+        "compatibility_date", "compatibility_flags", "logpush", "observability",
+    ) if key in settings}
+    metadata.update(main_module="worker.mjs", bindings=bindings, keep_bindings=["secret_text"])
+    comparison = metadata | {"bindings": sorted(bindings, key=lambda binding: binding["name"]),
+                             "secret_names": sorted(secret_names)}
+    fingerprint = hashlib.sha256(json.dumps(comparison, sort_keys=True).encode()).hexdigest()
+    return metadata, fingerprint
+
+
+def update_code(env: dict, *, client: httpx.Client, state_path: Path = STATE,
+                source_root: Path = ROOT) -> dict:
+    """Upload only source, preserving an existing free deployment and private data."""
+    result = deploy(env, apply=False, client=client, state_path=state_path, source_root=source_root)
+    try:
+        saved = json.loads(state_path.read_text())
+        state = _state(state_path, saved["account_id"], result["origin"])
+        if state is None or state["phase"] != "deployed" or not ACCOUNT.fullmatch(state["account_id"]):
+            raise ValueError
+        worker_source = (source_root / "cloud/whop/src/worker.mjs").read_bytes()
+    except (OSError, KeyError, TypeError, ValueError):
+        raise DeploymentBlocked("A saved completed deployment and committed Worker source are required for --update-code") from None
+    cf = Cloudflare(env.get("CLOUDFLARE_API_TOKEN", ""), client)
+    path = f"/accounts/{state['account_id']}/workers/scripts/{WORKER_NAME}"
+    current, _ = cf.call("GET", path + "/settings")
+    metadata, fingerprint = _code_metadata(current)
+    schedules, _ = cf.call("GET", path + "/schedules")
+    if (not isinstance(schedules, dict) or not isinstance(schedules.get("schedules"), list)
+            or any(not isinstance(item, dict) or not isinstance(item.get("cron"), str)
+                   for item in schedules["schedules"])):
+        raise DeploymentBlocked("Existing Worker schedules could not be verified; no update was uploaded")
+    cf.call("PUT", path, files={
+        "metadata": (None, json.dumps(metadata), "application/json"),
+        "worker.mjs": ("worker.mjs", worker_source, "application/javascript+module"),
+    })
+    actual, _ = cf.call("GET", path + "/settings")
+    actual_schedules, _ = cf.call("GET", path + "/schedules")
+    if _code_metadata(actual)[1] != fingerprint or actual_schedules != schedules:
+        raise DeploymentBlocked("The uploaded code's settings or schedules did not match; inspect the existing Worker before retrying")
+    return result | {"status": "code_updated", "resources_changed": True,
+                     "authorization_complete": None, "settings_unchanged_verified": True,
+                     "schedules_unchanged_verified": True, "database_mutations_sent": False,
+                     "secret_values_sent": False}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--preflight", action="store_true")
     group.add_argument("--apply", action="store_true")
+    group.add_argument("--update-code", action="store_true")
     args = parser.parse_args()
     try:
         with httpx.Client() as client:
-            result = deploy(os.environ, apply=args.apply, client=client)
+            result = (update_code(os.environ, client=client) if args.update_code
+                      else deploy(os.environ, apply=args.apply, client=client))
     except (DeploymentBlocked, OSError) as error:
         message = str(error) if isinstance(error, DeploymentBlocked) else "Deployment metadata could not be saved; inspect local filesystem access"
         print(json.dumps({"status": "blocked", "detail": message, "live_publishing": False}), file=sys.stderr)

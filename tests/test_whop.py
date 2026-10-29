@@ -12,6 +12,7 @@ def bounty(identifier="bnty_actual", **updates):
             "gross_reward_amount": 15, "net_reward_amount": 10.5, "budget_amount": 150,
             "gross_paid_out_amount": 30, "accepted_submissions_count": 2,
             "accepted_submissions_limit": 10, "unresolved_submissions_count": 1,
+            "accepted_submissions_per_user_limit": 1, "viewer_accepted_submissions_count": 0,
             "spots_remaining": 7, "allowed_country_codes": ["JO"],
             "accepted_deliverable_types": ["content_url"], "requirements": "do not invent terms"} | updates
 
@@ -45,6 +46,8 @@ async def test_documented_filters_headers_pagination_and_distinct_reward_model()
     observation = result["observations"][0]
     assert observation["pricing_model"] == "fixed_reward_per_approved_submission"
     assert observation["gross_reward_amount"] == 15 and observation["quoted_net_reward_amount"] == 10.5
+    assert observation["accepted_submissions_per_user_limit"] == 1
+    assert observation["viewer_accepted_submissions_count"] == 0
     assert observation["raw"]["requirements"] == "do not invent terms"
     assert observation["provider_reports_country_match"] is True
     assert result["observations"][1]["provider_reports_country_match"] is True
@@ -137,3 +140,25 @@ async def test_ugc_uses_its_own_documented_goal_filter():
     async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
         result = await WhopBounties("test-token", client=client).list_open_bounties(business_goal_type="ugc_content")
     assert result["business_goal_type"] == "ugc_content"
+
+
+@pytest.mark.parametrize("field", ["accepted_submissions_per_user_limit", "viewer_accepted_submissions_count"])
+@pytest.mark.parametrize("value", [None, True, -1, 1.5, "1"])
+async def test_owner_winner_counts_are_required_strict_provider_integers(field, value):
+    record = bounty(**{field: value})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(
+        lambda request: httpx.Response(200, json=page([record])),
+    )) as client:
+        with pytest.raises(WhopError, match="invalid bounty slot count"):
+            await WhopBounties("test-token", client=client).list_open_bounties()
+
+
+@pytest.mark.parametrize("field", ["accepted_submissions_per_user_limit", "viewer_accepted_submissions_count"])
+async def test_missing_owner_winner_counts_do_not_receive_provider_defaults(field):
+    record = bounty()
+    del record[field]
+    async with httpx.AsyncClient(transport=httpx.MockTransport(
+        lambda request: httpx.Response(200, json=page([record])),
+    )) as client:
+        with pytest.raises(WhopError, match="invalid bounty slot count"):
+            await WhopBounties("test-token", client=client).list_open_bounties()

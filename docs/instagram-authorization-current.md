@@ -107,6 +107,16 @@ Before live scheduling, query the real account's
 capacity. Returned media/container IDs do not prove final public processing,
 campaign acceptance, or reward eligibility.
 
+The adapter now reads `quota_usage,config` from that endpoint using the existing
+Bearer-header transport. The official [capacity reference](https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-user/content_publishing_limit.md)
+explicitly supports Instagram Login on `graph.instagram.com`. The workflow
+requires a valid account-reported remaining capacity before creating a container
+and checks again after processing, before revalidating approval and publishing.
+Unknown, malformed or exhausted capacity blocks publication. The returned quota
+is used because Meta's guide and reference give different example limits; no
+universal post limit is hard-coded. Mocked tests verify those gates; actual
+account capacity remains unverified until owner authorization.
+
 ## Views and earnings
 
 The current [Instagram Media Insights reference](https://developers.facebook.com/documentation/instagram-platform/reference/instagram-media/insights.md)

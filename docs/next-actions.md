@@ -1,104 +1,68 @@
-# Owner participation required after publication
+# Current owner actions
 
-The existing cloud environment has been published. Its new active version and
-live network access were verified. `REWARDS_LIVE_PUBLISHING` is configured and
-remains disabled. The old proxy-blocked instructions are superseded; no new
-environment, project rebuild or repeat of earlier local test suites is needed.
+Whop setup and consent are complete. Production status was checked after the
+latest published environment: authorization is ready, the read-only
+`bounty:basic:read` scope works, five automatic refresh rotations have persisted,
+two private discovery snapshots exist, and the most recent scheduled run passed.
+No new environment Publish, app registration, credentials or repeated consent is
+required for the code changes in this update. Keep
+`REWARDS_LIVE_PUBLISHING=false`.
 
-## Whop app registration and consent are the current priority
+## Next: payout verification and the actual brief
 
-Cloudflare authorization now works. The existing account passed the free-plan
-check (no account subscriptions), its missing free `workers.dev` namespace was
-initialized, and this project's single Worker/private D1 service was deployed.
-The generated encryption key and broker credential were retained across the
-health-check update. The 30-minute renewal cron is installed; no real Whop grant
-or production renewal has been verified yet.
+1. Open the existing [owner opportunities page](https://content-rewards-whop.content-rewards-dc8a4aba9226.workers.dev/opportunities)
+   and sign in with the existing owner login. Review the current private briefs
+   and their unverified conditions. The page reads encrypted cloud snapshots;
+   the creator's computer does not need to stay on.
+2. Inside the actual Whop account, open **Dashboard → Balances → Set up Whop Payments** (or **Profile → Balance**) using
+   Jordan as the true residence, the requested identity checks and an available
+   payout method. Follow [Whop's official payout instructions](https://docs.whop.com/manage-your-business/manage-payouts/set-up-payouts.md).
+   Jordan is listed as supported; this does not prove this account's KYC or
+   available withdrawal method. Whop documents a $10 minimum withdrawal where
+   applicable; a quoted campaign reward below that amount is retained, but does
+   not establish that its proceeds can be withdrawn by themselves.
+   Do not transfer money, purchase anything or
+   upgrade a service for this project.
+3. Before accepting work, confirm the advertiser's rights to the exact materials,
+   permission for the proposed automated editing/submission, new-account terms,
+   and any livestream requirement inside the official campaign. Publicly
+   viewable footage is not proof of permission. A mandatory human livestream
+   cannot be replaced with a simulated recording or unattended claim.
 
-The exact deployed callback to register is:
+The actual account-visible results and review packet remain private. The
+current offers are fixed rewards, not CPM Content Rewards. The system retains
+smaller offers, but neither discovery nor a numeric research score proves an
+eligible earning opportunity. No real footage can be acquired/rendered as
+campaign-approved work until its rights are established.
 
-```text
-https://content-rewards-whop.content-rewards-dc8a4aba9226.workers.dev/oauth/callback
-```
+## Social consent when campaign requirements justify it
 
-**Next owner action:** open the [Whop Developer Dashboard](https://whop.com/dashboard/developer),
-create/select this project's dedicated OAuth app, and register that exact callback.
-Under **View available scopes**, enable only **`bounty:basic:read`**. The live
-issuer's discovery metadata and List Bounties contract agree on that read-only
-scope; neither `bounty` nor `bounty:basic` is advertised. Earlier basic-only
-instructions have been superseded by this verified provider evidence.
+For an eligible YouTube/Instagram campaign, authorize the actual account via the
+provider's own consent flow. Use [YouTube account authorization](account-authorization.md)
+and [Meta's professional-account flow](instagram-authorization-current.md).
+Google offline consent, Meta professional-account consent and verified account
+IDs still require the owner. Enter credentials only in secure settings; never
+send passwords, tokens, callback URLs or authorization codes in chat.
 
-Then complete these account-owned settings:
+YouTube's renewal/upload implementation is prepared. Instagram additionally
+requires an approved immutable HTTPS media host and verified token renewal.
+Its publishing quota is now checked before creation and again before final
+publication. Neither social connection is claimed operational without a real
+account check. Do not create additional accounts until a verified campaign
+requires and permits them.
 
-1. In Cloudflare **Workers & Pages → content-rewards-whop → Settings → Variables
-   and Secrets**, set `WHOP_CLIENT_ID` to the app's public ID (normal text).
-2. Set `OWNER_PASSWORD` as a Secret using a password-manager-generated random
-   password of at least 32 characters. Keep it in your password manager.
-3. Replace `WHOP_BROKER_API_TOKEN` with a separate generated random Secret of
-   at least 32 characters. Enter that same machine credential only in this
-   environment's secure `WHOP_BROKER_API_TOKEN` field, scoped to the exact Worker
-   hostname. Do not change `TOKEN_ENCRYPTION_KEY` or the private D1 binding.
-4. Deploy those Cloudflare setting changes. Review/save/**Publish** the pending
-   existing-environment update containing the newly discovered exact Worker
-   host, its nonsecret `WHOP_BROKER_URL`, and the optional machine credential.
-   The address could only be added after real deployment. No new environment
-   is needed. Leave `WHOP_ACCESS_TOKEN` empty and optional and keep
-   `REWARDS_LIVE_PUBLISHING=false`.
-5. Open the [owner authorization site](https://content-rewards-whop.content-rewards-dc8a4aba9226.workers.dev/),
-   sign in with the owner password, choose **Authorize Whop discovery**, review
-   the single `bounty:basic:read` permission on Whop, and consent as the actual
-   Jordan-resident creator. The callback receives and encrypts credentials
-   automatically; no callback URL/code, password or token is pasted into chat.
+## Existing recurring cloud operation
 
-The agent can then verify the real account-visible clipping and UGC bounty
-responses, persisted renewal and private cron results. Fixed rewards remain
-separate from CPM Content Rewards. Weakness-first rankings still require dated
-new-account, payout/KYC, rights/materials, platform, deadline and automation
-permission evidence; no API grant establishes those campaign-specific facts.
-See [Whop authorization](whop-authorization.md) and [the deployed broker](../cloud/whop/README.md).
+The existing free Cloudflare Worker checks renewal every 30 minutes and retains
+encrypted clipping/UGC snapshots on a six-hour cadence. The separate free
+GitHub observer's scheduled checkpoint persistence also passed; it accepts only
+permitted public feeds and must not receive private Whop data or earnings.
+These are verified recurring discovery services, not a live publishing or
+income business. First-video approval, actual submissions/approvals and payout
+tracking remain outstanding. No paid service is activated.
 
-## Social account consent
-
-Authorize the actual YouTube channel for upload, readonly and offline access,
-then place its Google client ID, client secret, refresh token and channel ID in
-secure environment settings. See [account authorization](account-authorization.md).
-
-For Instagram, use the Meta app's **Instagram > API setup with Instagram
-business login > Generate token** flow for the target professional account.
-Configure `INSTAGRAM_ACCESS_TOKEN`, its professional `user_id` as
-`INSTAGRAM_ACCOUNT_ID`, and the app-supported `INSTAGRAM_API_VERSION`.
-Current official examples use `v26.0`; the chosen app and grants must still be
-verified. See [current Meta instructions](instagram-authorization-current.md).
-The corrected identity probe uses `/me` and distinguishes professional `user_id`
-from app-scoped `id`. Secure renewal and approved immutable media hosting remain
-operational prerequisites for continuous Instagram use.
-
-## Vyro account and automation permission
-
-Real public listings are documented in [live Vyro findings](live-vyro-findings.md).
-The displayed-rate research shortlist begins with Total Drama Roblox offers at
-$2.50 per 1,000 views, then Joy 101 at $2.00. No candidate is verified suitable
-for a new Jordan-based creator: actual briefs, budget, account admission,
-payout access and material rights remain unknown. Three public listings are
-locked for new posts and must not be treated as open opportunities.
-
-Vyro's terms prohibit unauthorized automated collection, and its content rules
-also mention automated posting in prohibited spam promotion. Obtain a
-provider-approved API/feed/export and confirmation that this specific workflow
-and official social API scheduling are allowed. Complete creator/social linking
-and actual Jordan payout verification inside the official account. A public
-marketing rate or a personal social API grant is not permission from Vyro.
-
-## Cloud operation and first video
-
-The free observer reuses the existing worker on standard public GitHub runners
-and persists only public observations in a small separate Git branch. It needs
-no paid artifact storage, repository-variable permission, social tokens, or
-computer left on. See [free observer](free-cloud-observer.md) for execution
-proof and scheduling limits. It correctly reports blocked discovery until a
-permitted source is configured, and it never publishes or handles a private
-financial ledger.
-
-Once account/provider permissions, real eligible terms and approved footage
-exist, the agent can prepare the first actual video and its preflight packet.
-Only then is owner publication approval requested. Until that review,
-`REWARDS_LIVE_PUBLISHING=false` and `business_live=false` remain correct.
+Vyro and CPM Content Rewards still need a permitted source and verified campaign
+terms. Vyro's restrictions must be resolved with the provider; no restricted
+scraping or automated website posting is enabled. Other candidate platforms
+could not be verified through the current network policy and are not presented
+as eligible offers.

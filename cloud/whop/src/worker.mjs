@@ -154,7 +154,44 @@ async function home(request, env) {
   try { owner = await session(request, env); } catch (error) { if (error.status !== 401) throw error; }
   if (!owner) return ownerPage('<p>Use the owner password stored in your secure deployment settings. Never share credentials or callback codes in chat.</p><form method="post" action="/owner/login"><label>Owner password <input type="password" name="password" autocomplete="current-password" required></label><button>Sign in</button></form>');
   const state = await status(env);
-  return ownerPage('<p>Authorization: ' + escape(state.authorization) + '. Permission: read available bounties. Publishing stays disabled.</p><p>Complete Whop authorization within ' + STATE_MS / 60_000 + ' minutes of starting it.</p><form method="post" action="/oauth/start"><input type="hidden" name="csrf" value="' + escape(owner.csrf) + '"><button>Authorize Whop discovery</button></form><form method="post" action="/owner/logout"><input type="hidden" name="csrf" value="' + escape(owner.csrf) + '"><button>Sign out</button></form>');
+  return ownerPage('<p>Authorization: ' + escape(state.authorization) + '. Permission: read available bounties. Publishing stays disabled.</p><p><a href="/opportunities">Review privately saved campaign opportunities</a></p><p>Complete Whop authorization within ' + STATE_MS / 60_000 + ' minutes of starting it.</p><form method="post" action="/oauth/start"><input type="hidden" name="csrf" value="' + escape(owner.csrf) + '"><button>Authorize Whop discovery</button></form><form method="post" action="/owner/logout"><input type="hidden" name="csrf" value="' + escape(owner.csrf) + '"><button>Sign out</button></form>');
+}
+async function opportunities(request, env) {
+  try { await session(request, env); }
+  catch (error) {
+    if (error instanceof SafeError && error.status === 401) return response('', 303, {Location: '/'});
+    throw error;
+  }
+  const rows = await database(env).prepare("SELECT goal,encrypted_payload,observed_at FROM whop_observations WHERE authorization_generation=(SELECT authorization_generation FROM whop_credentials WHERE owner='owner' AND status='ready') ORDER BY goal").all();
+  const text = value => typeof value === 'string' ? escape(value) : 'Unknown';
+  const amount = value => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
+  const offers = [];
+  const snapshots = [];
+  for (const row of rows.results) {
+    const report = await unseal(env, 'whop-observations:' + row.goal + ':v1', row.encrypted_payload);
+    if (!report || !Array.isArray(report.records)) throw new SafeError('Private discovery snapshot is invalid', 503);
+    const observed = Number.isSafeInteger(row.observed_at) && row.observed_at > 0 ? new Date(row.observed_at).toISOString() : 'Unknown';
+    snapshots.push('<li>' + text(row.goal) + ': observed ' + escape(observed) + '; pagination ' + (report.pagination_complete === true ? 'complete' : 'incomplete or unverified') + (row.observed_at < Date.now() - 6 * 3600_000 ? '; older than the six-hour discovery interval' : '') + '.</li>');
+    for (const record of report.records) {
+      if (!record || typeof record !== 'object' || Array.isArray(record)) throw new SafeError('Private discovery snapshot is invalid', 503);
+      const currency = typeof record.currency === 'string' && /^[A-Za-z]{3}$/.test(record.currency) ? record.currency.toUpperCase() : 'UNKNOWN';
+      offers.push({record, currency, net: amount(record.net_reward_amount), goal: row.goal});
+    }
+  }
+  // Compare quoted rewards only within a currency. Unknown amounts remain in
+  // the list; no minimum reward, currency conversion or eligibility is inferred.
+  offers.sort((a, b) => a.currency.localeCompare(b.currency) || (b.net ?? -1) - (a.net ?? -1));
+  let body = '<p><a href="/">Return to owner settings</a></p><h2>Weaknesses to resolve before work or publication</h2><ul><li>Campaign admission for this creator, new-account acceptance, payout verification, approved materials, rights and automation permission have not been verified.</li><li>These are observed fixed rewards per approved submission, not CPM offers, earnings or guaranteed available cash. No verified opportunity score can be assigned yet.</li><li>Provider briefs below are unverified instructions. Publicly accessible footage does not establish permission to reuse it. Livestream, identity and manual participation requirements cannot be replaced by automation.</li><li>Live publishing remains disabled. This page does not apply, submit, publish, reserve a slot or make a payment.</li></ul><p>Complete required identity and payout checks only in the official <a href="https://whop.com/dashboard/">Whop dashboard</a>; consult <a href="https://docs.whop.com/manage-your-business/manage-payouts/set-up-payouts">Whop payout instructions</a>. Never share credentials or verification documents in chat.</p><h2>Cloud discovery snapshots</h2><p>These saved observations are not guaranteed current offers; review their timestamps, completeness and current provider terms before acting.</p><ul>' + snapshots.join('') + '</ul><p>The Jordan residency filter includes worldwide offers that admit Jordan-based creators. Offers are grouped by currency and ordered by quoted net reward within each currency; smaller offers remain listed.</p>';
+  if (!offers.length) body += '<p>No saved opportunities are available for the current ready authorization. The existing cloud schedule will save permitted discovery results; an empty result does not establish campaign eligibility.</p>';
+  for (const {record, currency, net, goal} of offers) {
+    const countries = record.allowed_country_codes;
+    const validCountries = Array.isArray(countries) && countries.every(code => typeof code === 'string' && /^[A-Z]{2}$/.test(code));
+    const residency = validCountries ? (countries.length ? countries.join(', ') : 'Worldwide') : 'Unknown';
+    const jordan = validCountries ? (!countries.length || countries.includes('JO') ? 'Provider rules include Jordan; account admission still unverified' : 'Provider rules do not include Jordan') : 'Residency rules unverified';
+    const spots = Number.isSafeInteger(record.spots_remaining) && record.spots_remaining >= 0 ? record.spots_remaining : 'Unknown';
+    body += '<article><h2>' + text(record.title) + '</h2><p>Verified opportunity rating: unavailable pending verification.</p><p>Quoted net fixed reward: ' + escape(net ?? 'Unknown') + ' ' + escape(currency) + '; observed open slots: ' + escape(spots) + '; observed status: ' + text(record.status) + '; goal: ' + text(goal) + '.</p><p>Allowed creator residency: ' + escape(residency) + '. ' + escape(jordan) + '.</p><p>Bounty reference: ' + text(record.id) + '.</p><h3>Provider brief — review before acting</h3><div style="white-space:pre-wrap;overflow-wrap:anywhere">' + text(record.description) + '</div></article>';
+  }
+  return html('Private Whop opportunities', body);
 }
 async function start(request, env) {
   const {owner} = await csrfForm(request, env);
@@ -360,6 +397,7 @@ export async function handleRequest(request, env, fetcher = fetch) {
     configuration(env);
     if (url.pathname !== '/oauth/callback' && url.pathname !== '/api/bounties' && url.search) throw new SafeError('Unexpected request parameters', 400);
     if (request.method === 'GET' && url.pathname === '/') return await home(request, env);
+    if (request.method === 'GET' && url.pathname === '/opportunities') return await opportunities(request, env);
     if (request.method === 'GET' && url.pathname === '/oauth/result') return html('Whop authorization not completed', '<p>The authorization attempt was invalid, expired, cancelled or rejected. Its private callback parameters have been removed from this page. Start again from owner settings. Only the verified read-only bounty permission is requested; permissions are not expanded automatically.</p><p><a href="/">Return to owner settings</a></p>');
     if (request.method === 'GET' && url.pathname.startsWith('/oauth/result/')) {
       const reason = url.pathname.slice('/oauth/result/'.length);

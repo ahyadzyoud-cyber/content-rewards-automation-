@@ -6,22 +6,42 @@ OAuth state and rotating credentials. It does not publish social content, submit
 bounties, move money, or convert fixed bounties into CPM campaigns.
 `REWARDS_LIVE_PUBLISHING=false` remains required.
 
-The service is prepared for deployment; a source file, local test, or published
-Codex development environment does not establish a reachable production callback.
-The actual callback exists only after deployment to the owner's Cloudflare account
-and verification of that exact HTTPS address.
-
 Current deployment: `https://content-rewards-whop.content-rewards-dc8a4aba9226.workers.dev`.
 The private D1 binding, stable encryption secret and 30-minute renewal cron are
 installed on the verified Free account. Owner app registration/login/consent
-remain pending. `/health` checks database/key health without revealing them.
+are complete. Real authenticated discovery and five durable automatic token
+rotations have been verified. `/health` checks database/key health without revealing them.
+The session-protected `/opportunities` page shows current-generation encrypted
+snapshots, their completeness/age and escaped provider briefs. It makes no
+provider requests or business writes, retains smaller offers, and lists payout,
+rights and workflow limitations before rewards. Visibility does not establish
+campaign eligibility or confirmed earnings.
 The optional manual [HTTPS verification workflow](../../.github/workflows/whop-health.yml)
 uses a standard public GitHub runner and no secrets, cache or artifacts.
 Follow [current owner steps](../../docs/next-actions.md); do not create another
 Worker or replace the encryption key.
 
+## Routine code updates
 
-## The first owner action
+Use the existing saved deployment for source-only corrections:
+
+```sh
+.venv/bin/python scripts/deploy_whop.py --update-code
+```
+
+This mode repeats the read-only Free-plan/resource preflight, then uploads only
+the Worker source. It preserves the current plaintext and D1 bindings, secret
+bindings, compatibility settings, logging settings and schedules, and verifies
+their readback. It sends no secret values, SQL, schema migration, schedule
+update or deployment-state write. Unknown binding types and enabled live
+publishing block the update. Whop authorization is not inspected or reset by
+this operation; its result reports authorization as unverified (`null`).
+
+
+## Original deployment setup (already completed)
+
+These instructions describe initial setup for reference. Do not repeat them,
+replace secrets or reauthorize an existing ready grant during routine updates.
 
 In the official Cloudflare dashboard, use an existing account on **Workers Free**
 and ensure that its `workers.dev` subdomain is selected. Create an account-scoped

@@ -145,6 +145,98 @@ test('owner form documents preserve same-origin navigation Origin without exposi
   assert.equal(callback.headers.get('Location'), '/oauth/result/owner-session-required');
 });
 
+test('private opportunity page requires owner session and does not accept the machine credential', async () => {
+  const {env, sqlite} = setup();
+  for (const request of [req(env, '/opportunities'), apiRequest(env, '/opportunities')]) {
+    const denied = await handleRequest(request, env, forbiddenFetch);
+    assert.equal(denied.status, 303);
+    assert.equal(denied.headers.get('Location'), '/');
+    assert.equal(await denied.text(), '');
+    assert.equal(denied.headers.get('Cache-Control'), 'no-store');
+    assert.equal(denied.headers.get('Referrer-Policy'), 'no-referrer');
+  }
+  const owner = await ownerLogin(env);
+  sqlite.prepare('UPDATE oauth_sessions SET expires_at=0').run();
+  const expired = await handleRequest(req(env, '/opportunities', {headers: {Cookie: owner.cookie}}), env, forbiddenFetch);
+  assert.equal(expired.status, 303);
+  assert.equal(expired.headers.get('Location'), '/');
+  assert.equal(await expired.text(), '');
+  assert.equal(expired.headers.get('Cache-Control'), 'no-store');
+  assert.equal(expired.headers.get('Referrer-Policy'), 'no-referrer');
+});
+
+test('private opportunity page escapes provider text, lists small rewards, and makes no writes or external requests', async () => {
+  const {env, sqlite} = setup(), owner = await ownerLogin(env);
+  await seedTokens(env, Date.now() + 3600_000, 'hidden-refresh-token', 'hidden-access-token');
+  const records = [
+    {id: 'bnty_small', title: 'Small opportunity', description: 'Original brief\nwith a second line.', currency: 'usd', net_reward_amount: 0.01, spots_remaining: 8, status: 'open', allowed_country_codes: []},
+    {id: 'bnty_hostile', title: '<script>alert("title")</script>', description: '</div><img src="https://evil.invalid/leak" onerror="alert(1)">\n<script>alert(2)</script>', currency: 'usd', net_reward_amount: 7, spots_remaining: 90, status: 'open', allowed_country_codes: ['JO', 'GB'], metadata: {access_token: 'hidden-provider-metadata'}},
+    {id: 'bnty_euro', title: 'Different currency', description: 'A separate currency, no conversion.', currency: 'eur', net_reward_amount: 500, spots_remaining: 1, status: 'open', allowed_country_codes: ['DE']},
+    {id: 'bnty_unknown', title: 'Unknown quoted amount', description: 'Do not invent amounts or residency.', currency: 'usd', net_reward_amount: '1000', spots_remaining: null, status: 'open', allowed_country_codes: null},
+  ];
+  const ciphertext = await seal(env, 'whop-observations:clipping:v1', {records, pagination_complete: false, arbitrary_private_field: 'hidden-snapshot-field'});
+  sqlite.prepare('INSERT INTO whop_observations(goal,encrypted_payload,observed_at,authorization_generation) VALUES(?,?,?,0)').run('clipping', ciphertext, Date.now());
+  const before = sqlite.prepare('SELECT total_changes() AS n').get().n;
+  const response = await handleRequest(req(env, '/opportunities', {headers: {Cookie: owner.cookie}}), env, forbiddenFetch);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('Cache-Control'), 'no-store');
+  assert.equal(response.headers.get('Referrer-Policy'), 'no-referrer');
+  assert.ok(response.headers.get('Content-Security-Policy').includes("default-src 'none'"));
+  const content = await response.text();
+  assert.ok(content.indexOf('Weaknesses to resolve') < content.indexOf('<article>'));
+  assert.ok(content.includes('&lt;script&gt;alert(&quot;title&quot;)&lt;/script&gt;'));
+  assert.ok(content.includes('&lt;img src=&quot;https://evil.invalid/leak&quot;'));
+  assert.ok(!content.includes('<script>'));
+  assert.ok(!content.includes('<img'));
+  assert.ok(content.includes('Original brief\nwith a second line.'));
+  assert.ok(content.includes('white-space:pre-wrap'));
+  assert.ok(content.includes('Quoted net fixed reward: 0.01 USD'));
+  assert.ok(content.includes('Quoted net fixed reward: Unknown USD'));
+  assert.ok(content.includes('Allowed creator residency: Worldwide'));
+  assert.ok(content.includes('Provider rules include Jordan; account admission still unverified'));
+  assert.ok(content.includes('Provider rules do not include Jordan'));
+  assert.ok(content.includes('Residency rules unverified'));
+  assert.ok(content.includes('pagination incomplete or unverified'));
+  assert.ok(content.indexOf('Different currency') < content.indexOf('&lt;script&gt;alert(&quot;title&quot;)'));
+  assert.ok(content.indexOf('&lt;script&gt;alert(&quot;title&quot;)') < content.indexOf('Small opportunity'));
+  assert.ok(content.indexOf('Small opportunity') < content.indexOf('Unknown quoted amount'));
+  for (const secret of [env.OWNER_PASSWORD, env.WHOP_BROKER_API_TOKEN, env.TOKEN_ENCRYPTION_KEY, owner.cookie.split('=')[1], owner.csrf, ciphertext, 'hidden-refresh-token', 'hidden-access-token', 'hidden-provider-metadata', 'hidden-snapshot-field']) assert.ok(!content.includes(secret));
+  assert.equal(sqlite.prepare('SELECT total_changes() AS n').get().n, before);
+  const home = await handleRequest(req(env, '/', {headers: {Cookie: owner.cookie}}), env, forbiddenFetch);
+  assert.ok((await home.text()).includes('href="/opportunities"'));
+});
+
+test('private opportunity page excludes old authorization snapshots and shows an honest empty state', async () => {
+  const {env, sqlite} = setup(), owner = await ownerLogin(env);
+  await seedTokens(env, Date.now() + 3600_000);
+  sqlite.prepare('UPDATE whop_credentials SET authorization_generation=2').run();
+  const encrypted = await seal(env, 'whop-observations:clipping:v1', {records: [{title: 'Previous owner opportunity'}]});
+  sqlite.prepare('INSERT INTO whop_observations(goal,encrypted_payload,observed_at,authorization_generation) VALUES(?,?,?,1)').run('clipping', encrypted, Date.now());
+  let page = await handleRequest(req(env, '/opportunities', {headers: {Cookie: owner.cookie}}), env, forbiddenFetch);
+  let content = await page.text();
+  assert.equal(page.status, 200);
+  assert.ok(content.includes('No saved opportunities are available for the current ready authorization'));
+  assert.ok(!content.includes('Previous owner opportunity'));
+  sqlite.prepare("UPDATE whop_credentials SET status='reauthorization_required',authorization_generation=1").run();
+  page = await handleRequest(req(env, '/opportunities', {headers: {Cookie: owner.cookie}}), env, forbiddenFetch);
+  content = await page.text();
+  assert.ok(!content.includes('Previous owner opportunity'));
+  assert.ok(content.includes('No saved opportunities are available'));
+});
+
+test('private opportunity page identifies stale snapshots and rejects unexpected parameters', async () => {
+  const {env, sqlite} = setup(), owner = await ownerLogin(env);
+  await seedTokens(env, Date.now() + 3600_000);
+  const encrypted = await seal(env, 'whop-observations:clipping:v1', {records: [], pagination_complete: true});
+  sqlite.prepare('INSERT INTO whop_observations(goal,encrypted_payload,observed_at,authorization_generation) VALUES(?,?,?,0)').run('clipping', encrypted, Date.now() - 7 * 3600_000);
+  const page = await handleRequest(req(env, '/opportunities', {headers: {Cookie: owner.cookie}}), env, forbiddenFetch);
+  const content = await page.text();
+  assert.ok(content.includes('older than the six-hour discovery interval'));
+  assert.ok(content.includes('pagination complete'));
+  assert.equal((await handleRequest(req(env, '/opportunities?code=private', {headers: {Cookie: owner.cookie}}), env, forbiddenFetch)).status, 400);
+  assert.equal((await handleRequest(post(env, '/opportunities', {csrf: owner.csrf}, owner.cookie), env, forbiddenFetch)).status, 404);
+});
+
 test('authorization forms allow only the owner and verified Whop redirect origins', async () => {
   const {env} = setup(), owner = await ownerLogin(env);
   const document = await handleRequest(req(env, '/', {headers: {Cookie: owner.cookie}}), env, forbiddenFetch);

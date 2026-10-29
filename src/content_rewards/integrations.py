@@ -230,6 +230,31 @@ class InstagramPublisher(_Adapter):
         return {"id": str(user_id), "user_id": str(user_id), "username": result.get("username"),
                 "account_type": account_type.upper()}
 
+    async def publishing_capacity(self) -> dict:
+        """Read this account's current quota; never assume a universal post limit."""
+        response = await self._request(
+            "GET", self.api_base + "/" + self.account_id + "/content_publishing_limit",
+            params={"fields": "quota_usage,config"},
+        )
+        entries = self._json(response).get("data")
+        try:
+            if not isinstance(entries, list) or len(entries) != 1 or not isinstance(entries[0], dict):
+                raise ValueError
+            usage = entries[0]["quota_usage"]
+            config = entries[0]["config"]
+            total, duration = config["quota_total"], config["quota_duration"]
+            if (any(type(value) is not int or not 0 <= value <= 2**64 - 1
+                    for value in (usage, total, duration)) or duration == 0):
+                raise ValueError
+        except (KeyError, TypeError, ValueError):
+            raise IntegrationError("Instagram publishing capacity is unavailable or invalid") from None
+        return {"quota_usage": usage, "quota_total": total, "quota_duration": duration,
+                "remaining": max(0, total - usage)}
+
+    async def require_publishing_capacity(self):
+        if (await self.publishing_capacity())["remaining"] == 0:
+            raise IntegrationError("Instagram publishing capacity is exhausted; wait before creating or publishing content")
+
     async def create_container(self, video_url: str, caption: str) -> str:
         _https_url(video_url)
         if len(caption) > 2200:

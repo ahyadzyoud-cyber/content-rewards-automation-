@@ -105,6 +105,8 @@ def bounty_observation(record: dict, country: str) -> dict:
         "gross_paid_out_amount": _amount(record, "gross_paid_out_amount"),
         "accepted_submissions_count": _count(record, "accepted_submissions_count"),
         "accepted_submissions_limit": _count(record, "accepted_submissions_limit"),
+        "accepted_submissions_per_user_limit": _count(record, "accepted_submissions_per_user_limit"),
+        "viewer_accepted_submissions_count": _count(record, "viewer_accepted_submissions_count"),
         "unresolved_submissions_count": _count(record, "unresolved_submissions_count"),
         "spots_remaining": _count(record, "spots_remaining"),
         "status": record["status"],

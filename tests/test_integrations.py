@@ -228,6 +228,60 @@ async def test_instagram_identity_accepts_numeric_professional_id():
 
 
 @pytest.mark.asyncio
+async def test_instagram_capacity_uses_actual_account_config_and_read_only_bearer_request():
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        assert request.method == "GET"
+        assert request.url.path == "/v26.0/account1/content_publishing_limit"
+        assert dict(request.url.params) == {"fields": "quota_usage,config"}
+        assert request.headers["Authorization"] == "Bearer private-token"
+        assert "private-token" not in str(request.url)
+        return httpx.Response(200, json={"data": [{"quota_usage": 6, "config": {
+            "quota_total": 7, "quota_duration": 86400,
+        }}]})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        publisher = InstagramPublisher("private-token", "account1", "v26.0", client)
+        assert await publisher.publishing_capacity() == {
+            "quota_usage": 6, "quota_total": 7, "quota_duration": 86400, "remaining": 1,
+        }
+        await publisher.require_publishing_capacity()
+    assert len(requests) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("usage,total", [(50, 50), (101, 100), (0, 0)])
+async def test_instagram_capacity_exhausted_never_assumes_room(usage, total):
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _: httpx.Response(200, json={
+        "data": [{"quota_usage": usage, "config": {"quota_total": total, "quota_duration": 86400}}],
+    }))) as client:
+        with pytest.raises(IntegrationError, match="exhausted"):
+            await InstagramPublisher("private-token", "account1", "v26.0", client).require_publishing_capacity()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("payload", [
+    {}, {"data": []}, {"data": [{}, {}]}, {"data": {}}, {"data": [None]},
+    {"data": [{"quota_usage": 1, "config": {}}]},
+    {"data": [{"quota_usage": 1, "config": None}]},
+] + [
+    {"data": [{"quota_usage": 1, "config": {"quota_total": 50, "quota_duration": 86400}}
+              | ({"quota_usage": bad} if field == "quota_usage" else {
+                  "config": {"quota_total": 50, "quota_duration": 86400} | {field: bad},
+              })]}
+    for field in ("quota_usage", "quota_total", "quota_duration")
+    for bad in (True, "1", -1, 1.5, None)
+] + [{"data": [{"quota_usage": 0, "config": {"quota_total": 50, "quota_duration": 0}}]}])
+async def test_instagram_capacity_unknown_or_invalid_fails_closed(payload):
+    async with httpx.AsyncClient(transport=httpx.MockTransport(
+            lambda _: httpx.Response(200, json=payload))) as client:
+        with pytest.raises(IntegrationError, match="capacity is unavailable or invalid"):
+            await InstagramPublisher("private-token", "account1", "v26.0", client).require_publishing_capacity()
+
+
+@pytest.mark.asyncio
 async def test_instagram_missing_views_fails_and_never_fabricates_earnings():
     async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _: httpx.Response(200, json={"data": []}))) as client:
         with pytest.raises(IntegrationError, match="view insights"):

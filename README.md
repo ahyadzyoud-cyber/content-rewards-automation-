@@ -2,12 +2,12 @@
 
 Automated cloud-based system for discovering campaigns on Whop and Vyro, creating short videos, publishing to YouTube Shorts and Instagram Reels, and tracking earnings.
 
-This repository contains a published development environment and a working development foundation. **It is not a live income-generating business yet.** No real social account is connected, no campaign eligibility or account payout is verified, no video has been published, and no paid plan is enabled.
+This repository contains a published development environment and a working cloud Whop discovery service. **It is not a live income-generating business yet.** Whop owner authorization, encrypted credential renewal and scheduled authenticated discovery have been verified in production. No real social account is connected, no campaign eligibility or account payout is verified, no video has been published, and no paid plan is enabled.
 
-Public provider access now works. Read [current Whop findings](docs/live-whop-findings.md), [real Vyro listings and restrictions](docs/live-vyro-findings.md), and [current Meta authorization](docs/instagram-authorization-current.md). Vyro's highest observed advertised rate is $2.50 per 1,000 views for four Total Drama Roblox offers; none is verified eligible for a new creator in Jordan. Whop's official fixed-reward clipping bounty API is implemented separately from CPM rewards:
+Read [current Whop findings](docs/live-whop-findings.md), [Vyro access restrictions](docs/live-vyro-findings.md), and [current Meta authorization](docs/instagram-authorization-current.md). Historical Vyro marketing rates do not establish current offers or eligibility. Whop's official fixed-reward clipping bounty API is implemented separately from CPM rewards:
 
 ```bash
-# Requires owner OAuth and the approved api.whop.com destination; never send a token in chat.
+# Reuses the authorized cloud broker; never send a token in chat.
 rewards discover-whop --country JO --goal both
 ```
 
@@ -17,9 +17,11 @@ credential storage and persistent rotating-token renewal. Its free deployment
 helper checks Cloudflare entitlement and preserves keys/state across redeploys.
 It is **deployed on a verified free Cloudflare account**, with the exact callback:
 `https://content-rewards-whop.content-rewards-dc8a4aba9226.workers.dev/oauth/callback`.
-Owner Whop app registration, secure login settings and actual consent are still
-required. Follow [Whop authorization](docs/whop-authorization.md) and
-[current owner steps](docs/next-actions.md). Manual `WHOP_ACCESS_TOKEN` remains
+Owner Whop app registration, secure login settings and actual consent are complete.
+The private [owner opportunities page](https://content-rewards-whop.content-rewards-dc8a4aba9226.workers.dev/opportunities)
+shows scheduled snapshots and provider briefs after owner sign-in. Follow
+[current owner steps](docs/next-actions.md); do not repeat registration or consent.
+Manual `WHOP_ACCESS_TOKEN` remains
 optional. Fixed-reward assessments list weaknesses first and block selection
 until actual owner and campaign evidence is verified.
 
@@ -30,9 +32,9 @@ Provider campaigns cannot become selectable until their actual automated workflo
 | Phase | Implemented and tested | External prerequisite |
 | --- | --- | --- |
 | Environment | Published Python 3.12 environment, locked dependencies, SQLite, CLI, authenticated API, passing cloud CI | Optional new Whop API destination/creator consent |
-| Discovery and analysis | Whop PKCE/private token broker, fixed-bounty reader and evidence-gated ranking, separate CPM imports | Creator OAuth; CPM/Vyro source permission and verified campaign terms |
+| Discovery and analysis | Production Whop grant, rotating encrypted credentials, recurring real fixed-bounty discovery, evidence-gated ranking and optional economic scenarios; separate CPM imports | CPM/Vyro source permission and verified creator/campaign terms |
 | Selection and editing | New-account/Jordan gates; choose best eligible campaign; approved local footage to portrait H264/AAC MP4 | Actual campaign terms, rights, fresh budget and eligibility evidence |
-| Publishing | YouTube refresh-token renewal and resumable upload; Instagram container/status/publish; exact media approval; duplicate-write barriers | Owner OAuth, platform permissions, verified target IDs, first-publication review; Instagram immutable hosting and renewal verification |
+| Publishing | YouTube refresh-token renewal and resumable upload; Instagram identity/quota/container/status/publish; exact media approval; duplicate-write barriers | Owner OAuth, platform permissions, verified target IDs, first-publication review; Instagram immutable hosting and renewal verification |
 | Tracking | Provider view snapshots, submission/approval/payment evidence ledger | Provider campaign submission/earnings API remains unverified; ledger entries are operator-recorded |
 | Recurrence | Two verified GitHub cloud observer runs with Git checkpoint restore; six-hour schedule | Permitted data; live business still requires authorized publishing and a private production ledger |
 
@@ -86,7 +88,7 @@ Scores are **heuristic priority scores, not profit predictions**:
 * Remaining budget: up to 2 points, `2 × budget / (budget + 1000)`.
 * Verified requirements and rights: up to 1.5 points, decreasing with requirement count.
 
-Selection separately requires explicit Jordan (`JO`) creator-residency eligibility, new-account permission, zero minimum followers, an allowed target platform, positive rate/budget, approved materials, verified requirements/rights, evidence no older than seven days, and no known expired deadline. Audience geography is a separate field. The optional payout evidence, qualifying-view terms and per-video cap support real publication review. A verification flag is an operator attestation supported by actual campaign terms; this software cannot establish account eligibility from a flag alone. Provider feeds cannot self-authorize these flags. Unknown payout access is not assumed available.
+Selection separately requires explicit Jordan (`JO`) creator-residency eligibility, new-account permission, zero minimum followers, an allowed target platform, positive rate/budget, approved materials, verified requirements/rights, evidence no older than seven days, and no known expired deadline. Whop's `country=JO` includes worldwide bounties and other offers admitting Jordan residents; it does not restrict discovery to local advertisers. Audience geography is a separate field. There is no minimum reward threshold: smaller offers remain queued, and every preparation re-ranks current opportunities without replacing existing drafts. The optional payout evidence, qualifying-view terms and per-video cap support real publication review. A verification flag is an operator attestation supported by actual campaign terms; this software cannot establish account eligibility from a flag alone. Provider feeds cannot self-authorize these flags. Unknown payout access is not assumed available.
 
 ## Operating limits
 

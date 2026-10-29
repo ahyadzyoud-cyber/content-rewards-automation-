@@ -1,7 +1,33 @@
 # Whop and Content Rewards: verified access findings
 
-Public contracts rechecked on 2026-10-29 (Asia/Amman). No Whop creator grant
-was supplied, no campaign was joined, and no content or payout was submitted.
+## Current authenticated result
+
+After the latest owner consent, production checks confirmed authorization
+`ready`, five persistent refresh-token rotations, a successful read-only
+`bounty:basic:read` grant, two encrypted discovery snapshots and a successful
+scheduled renewal run. Fresh authenticated listing completed every page for
+both clipping and UGC and returned two open fixed-reward offers admitting
+Jordan residents. The original records and review details remain private;
+they are not redistributed into this public repository or observer branch.
+The owner can read saved briefs on the existing private
+[opportunities page](https://content-rewards-whop.content-rewards-dc8a4aba9226.workers.dev/opportunities).
+
+Neither offer is verified selectable: owner payout/KYC, material rights,
+new-account terms and automation permission remain unresolved. The briefs
+also contain livestream requirements; those cannot be silently replaced with
+automated work. No campaign was joined, no video was published, no payout was
+requested and no earnings were claimed. Fixed rewards are not CPM offers.
+
+Global discovery retains `country=JO`: the official list contract explicitly
+says worldwide bounties always match the creator-residency filter. This finds
+worldwide opportunities while respecting actual residency restrictions, rather
+than restricting discovery to Jordan advertisers.
+
+The following sections retain the earlier access research and protocol history.
+Their initial no-grant/no-shortlist limitations are superseded by the current
+authenticated result above; campaign-specific eligibility remains unverified.
+
+Public contracts rechecked on 2026-10-29 (Asia/Amman).
 
 ## Access now works
 

@@ -83,6 +83,12 @@ class BountyVerification(BaseModel):
     allowed_platforms: list[str] = Field(default_factory=list)
     competition: BountyEvidence | None = None
     competing_entries: int | None = Field(default=None, ge=0, strict=True)
+    production_cost_usd: float | None = Field(default=None, ge=0, strict=True, allow_inf_nan=False)
+    production_hours: float | None = Field(default=None, gt=0, strict=True, allow_inf_nan=False)
+    acceptance_probability: float | None = Field(default=None, ge=0, le=1, strict=True, allow_inf_nan=False)
+    production_cost_evidence: BountyEvidence | None = None
+    production_time_evidence: BountyEvidence | None = None
+    acceptance_probability_evidence: BountyEvidence | None = None
 
     @field_validator("allowed_platforms")
     @classmethod
@@ -118,6 +124,55 @@ def _report_fresh(value: object, now: datetime) -> bool:
         return False
     return bool(checked.tzinfo is not None and checked.utcoffset() is not None
                 and now - MAX_EVIDENCE_AGE <= checked <= now + timedelta(minutes=5))
+
+
+ECONOMIC_EVIDENCE = {
+    "production_cost_usd": "production_cost_evidence",
+    "production_hours": "production_time_evidence",
+    "acceptance_probability": "acceptance_probability_evidence",
+}
+
+
+def _economic_scenario(review: BountyVerification | None, net: float | None,
+                       currency: object, observed_fresh: bool, now: datetime) -> dict:
+    """Calculate an optional per-attempt scenario, never verified earnings.
+
+    Costs are incurred even if the attempt is rejected. Acceptance probabilities
+    must have their own reviewed basis; API submission counts are not a proxy.
+    All assumptions and the quoted USD reward must be fresh before calculation.
+    """
+    missing = [name for name, evidence in ECONOMIC_EVIDENCE.items()
+               if review is None or getattr(review, name) is None
+               or not _fresh(getattr(review, evidence), now)]
+    reasons = []
+    if missing:
+        reasons.append("Economic planning lacks separately reviewed fresh assumptions: " + ", ".join(missing))
+    if currency != "USD" or net is None or net <= 0 or not observed_fresh:
+        reasons.append("Economic planning requires a fresh positive USD quoted fixed reward")
+    scenario = {
+        "status": "unavailable",
+        "expected_net_usd": None,
+        "expected_net_per_hour_usd": None,
+        "assumptions": None,
+        "limitations": reasons + [
+            "Planning scenario only; no acceptance, earnings or payout is established",
+            "Costs must cover the attempted deliverable; tax and unmodeled fees may reduce the result",
+        ],
+    }
+    if reasons:
+        return scenario
+    expected = net * review.acceptance_probability - review.production_cost_usd
+    hourly = expected / review.production_hours
+    if not math.isfinite(expected) or not math.isfinite(hourly):
+        scenario["limitations"].insert(0, "Economic planning calculation exceeds finite numeric limits")
+        return scenario
+    scenario.update(
+        status="reviewed_assumption_scenario",
+        expected_net_usd=round(expected, 4),
+        expected_net_per_hour_usd=round(hourly, 4),
+        assumptions={name: getattr(review, name) for name in ECONOMIC_EVIDENCE},
+    )
+    return scenario
 
 
 def rank_whop_bounties(
@@ -201,6 +256,19 @@ def rank_whop_bounties(
         spots = _count(observation.get("spots_remaining"))
         if spots is None or spots <= 0:
             blockers.append("No open submission capacity has been confirmed")
+        global_limit = _count(observation.get("accepted_submissions_limit"))
+        owner_limit = _count(observation.get("accepted_submissions_per_user_limit"))
+        owner_wins = _count(observation.get("viewer_accepted_submissions_count"))
+        if global_limit is None or global_limit <= 0:
+            blockers.append("The bounty's total winner limit has not been confirmed")
+        if owner_limit is None or owner_limit <= 0:
+            blockers.append("This creator's positive per-user winner limit has not been confirmed")
+        elif global_limit is not None and owner_limit > global_limit:
+            blockers.append("The per-user winner limit exceeds the bounty's total winner limit")
+        if owner_wins is None:
+            blockers.append("This authenticated creator's accepted-submission count has not been confirmed")
+        elif owner_limit is not None and owner_limit > 0 and owner_wins >= owner_limit:
+            blockers.append("This creator has exhausted the bounty's per-user winner allowance")
         net = _number(observation.get("quoted_net_reward_amount"))
         currency = observation.get("currency")
         if net is None or net <= 0 or not isinstance(currency, str) or len(currency) != 3:
@@ -214,6 +282,7 @@ def rank_whop_bounties(
         limitations.extend([
             "Quoted net reward excludes unverified production costs, tax, payout costs and approval risk",
             "Open slots do not verify unreserved cash budget or guarantee acceptance and payment",
+            "Whop permits one attempt at a time per creator and bounty; global unresolved submissions do not verify this creator's pending proofs",
             "Fixed rewards are per approved submission and cannot be compared to CPM using an invented view count",
         ])
         verified_eligibility = bool(fresh and country_match and review and review.creator_country == country
@@ -229,6 +298,8 @@ def rank_whop_bounties(
             "verified_requirements_and_permissions": 1.5 if verified_requirements else 0.0,
         }
         evidence_score = round(min(10.0, max(0.0, sum(breakdown.values()))), 2)
+        economics = _economic_scenario(review, net, currency, fresh, clock)
+        limitations.extend(economics["limitations"])
         results.append({
             "weaknesses": blockers + limitations,
             "blockers": blockers,
@@ -243,15 +314,31 @@ def rank_whop_bounties(
             "currency": currency,
             "quoted_net_reward_amount": net,
             "spots_remaining": spots,
+            "accepted_submissions_limit": global_limit,
+            "accepted_submissions_per_user_limit": owner_limit,
+            "viewer_accepted_submissions_count": owner_wins,
             "observed_at": report.get("observed_at"),
             "source_api_url": observation.get("source_api_url"),
+            "economic_scenario": economics,
+            "economic_priority_rank": None,
             "evidence_provenance": {
                 name: {"source_url": fact.source_url, "checked_at": fact.checked_at.isoformat(),
                        "confirmed": _fresh(fact, clock)}
-                for name in ["country_eligibility", "new_accounts", *facts, "competition"]
+                for name in ["country_eligibility", "new_accounts", *facts, "competition",
+                             *ECONOMIC_EVIDENCE.values()]
                 if review is not None and (fact := getattr(review, name)) is not None
             },
             "publication_approved": False,
         })
+    # Unknown economics are not zero and cannot justify demoting an opportunity.
+    # Keep the main evidence ordering; offer a separate ordering only among
+    # eligible, fully modeled scenarios. Negative scenarios stay in both queues.
+    modeled = [result for result in results if result["selectable"]
+               and result["economic_scenario"]["status"] == "reviewed_assumption_scenario"]
+    modeled.sort(key=lambda result: (-result["economic_scenario"]["expected_net_per_hour_usd"],
+                                    -result["economic_scenario"]["expected_net_usd"],
+                                    -result["evidence_score_out_of_10"], str(result["id"])))
+    for priority, result in enumerate(modeled, 1):
+        result["economic_priority_rank"] = priority
     return sorted(results, key=lambda result: (not result["selectable"], -result["evidence_score_out_of_10"],
                                               str(result["id"])))
