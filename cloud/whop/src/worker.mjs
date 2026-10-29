@@ -193,7 +193,9 @@ export async function readBytes(stream, maximum) {
 async function requestTokens(env, body, fetcher = fetch, now = Date.now) {
   const started = now(); let result;
   try {
-    result = await fetcher(TOKEN_ENDPOINT, {method: 'POST', headers: {'Content-Type': 'application/json', Accept: 'application/json'}, body: JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(20_000)});
+    // workerd does not implement redirect:"error". Manual exposes 3xx responses
+    // for explicit rejection below without forwarding codes or credentials.
+    result = await fetcher(TOKEN_ENDPOINT, {method: 'POST', headers: {'Content-Type': 'application/json', Accept: 'application/json'}, body: JSON.stringify(body), redirect: 'manual', signal: AbortSignal.timeout(20_000)});
   } catch { throw new SafeError('Whop token request could not be confirmed; authorize again rather than replaying a consumed token', 503); }
   if (!result.ok) throw new SafeError('Whop authorization was rejected; verify the app has only bounty:basic:read and authorize again', result.status === 401 || result.status === 403 ? 403 : 409);
   let tokens;
@@ -285,7 +287,7 @@ export function bountyParameters(url) {
 async function bountyPage(env, params, token, fetcher) {
   let result;
   try {
-    result = await fetcher(API_BOUNTIES + '?' + params, {method: 'GET', headers: {Authorization: 'Bearer ' + token, Accept: 'application/json', 'Api-Version-Date': API_VERSION}, redirect: 'error', signal: AbortSignal.timeout(20_000)});
+    result = await fetcher(API_BOUNTIES + '?' + params, {method: 'GET', headers: {Authorization: 'Bearer ' + token, Accept: 'application/json', 'Api-Version-Date': API_VERSION}, redirect: 'manual', signal: AbortSignal.timeout(20_000)});
   } catch { throw new SafeError('Official Whop discovery could not complete', 503); }
   if (result.status === 401 || result.status === 403) throw new SafeError('Whop rejected bounty discovery; verify the bounty:basic:read grant and app access. No permission was expanded', 403);
   if (!result.ok) throw new SafeError('Official Whop discovery returned HTTP ' + result.status, 502);

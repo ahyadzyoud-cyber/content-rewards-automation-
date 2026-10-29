@@ -37,7 +37,10 @@ async function fixtureBrowser({oldDocumentPolicy = false, oldProviderPolicy = fa
     assert.ok(completeConsent, 'Only completed synthetic consent may invoke the fake token endpoint');
     assert.equal(target, TOKEN_ENDPOINT);
     assert.equal(options.method, 'POST');
-    assert.equal(options.redirect, 'error');
+    if (options.redirect !== undefined && !['follow', 'manual'].includes(options.redirect)) {
+      throw new TypeError('Workers supports only follow or manual redirect modes');
+    }
+    assert.equal(options.redirect, 'manual', 'Provider token requests must never follow redirects');
     const values = JSON.parse(options.body);
     assert.equal(values.grant_type, 'authorization_code');
     assert.equal(values.code, 'synthetic-provider-code');

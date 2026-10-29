@@ -387,3 +387,61 @@ was sent during deployment. Existing expired records had already been removed
 by the normal scheduled cleanup; no expired code or PKCE transaction was
 resurrected. Owner authorization must start a fresh transaction after deployment.
 Publishing remains false and no paid service was activated.
+
+
+## Whop token exchange runtime correction — 2026-10-29
+
+The new real callback reached its credential claim and ended
+`reauthorization_required` with no encrypted credential payload. The generic
+result page had hidden the outbound request failure. Official Whop documents
+were checked again: JSON PKCE exchange, a flat access/refresh-token response,
+Bearer token type and numeric expiry are correct. Anonymous official Retrieve
+App inspection confirmed the configured app is already a **public** OAuth
+client and its registered redirect URI exactly matches this Worker. Its empty
+installation permission list is not the requested OAuth action scope;
+`bounty:basic:read` remains the single initial OAuth permission. No client
+secret or app-settings change is required.
+
+The confirmed failure was `redirect: "error"` in the Worker fetch options.
+Cloudflare Workers does not implement that mode: it throws a TypeError before
+sending HTTP. This is explicit in the
+[official Workers Request documentation](https://developers.cloudflare.com/workers/runtime-apis/request/)
+and [workerd's Request implementation](https://github.com/cloudflare/workerd/blob/main/src/workerd/api/http.c%2B%2B).
+
+A temporary, existing-Bearer-protected runtime probe used hard-coded Whop
+endpoints, the public app identifier, and newly generated **nonexistent** test
+codes/verifiers. It read no credential/session records and wrote no D1 data.
+Only stage, status, known OAuth error enums and field-presence flags were
+returned; bodies, descriptions, code/state/token values, request URLs and app
+identifiers were never logged or returned. In the actual deployed runtime:
+
+| Request mode | Result |
+| --- | --- |
+| error | Request-stage exception, no HTTP response; classified unsupported redirect mode |
+| manual | Whop HTTP400 JSON invalid_grant, as expected for the nonexistent test code |
+
+Both default and descriptive User-Agent variants had the same outcome. This
+ruled out the app's Public mode, JSON serialization, callback registration and
+client identity as the reported transport blocker. No real code, token or
+refresh grant was retried. The temporary diagnostic endpoint was removed after
+confirmation.
+
+Token exchange/refresh and fixed-bounty GET requests now use the supported
+`manual` redirect mode. Existing non-2xx rejection remains unchanged, so 3xx
+responses do not forward codes or bearer credentials. The Node mocks previously
+accepted an option that actual workerd rejects; all injected HTTP fakes now
+enforce the supported runtime contract and specifically require manual mode.
+
+Targeted checks passed36 core cases and4 affected Chromium callback cases.
+New cases reject every relevant 3xx token/bounty redirect without forwarding,
+persisting redirected credentials or replaying codes, and reject refresh
+redirects after one claimed attempt. Existing delayed-consent, replay,
+PKCE/state, encrypted persistence, cookie, CSRF and Origin protections remain.
+Unrelated local Python suites, rendering and builds were not repeated.
+
+The existing Free Worker received a code-only update. Secret bindings, D1
+binding, exact public-variable hash, compatibility date and compatibility flags
+were preserved. No secret update, database mutation, schema change, public
+client-mode change, additional compatibility flag or paid activation was sent.
+Publishing remains false. A fresh owner authorization is required to issue a
+new code after this deployed fix; no setup changes are required.

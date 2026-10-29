@@ -2,10 +2,27 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 import {readFileSync} from 'node:fs';
-import {AUTHORIZATION_ENDPOINT, REQUESTED_SCOPE, TOKEN_ENDPOINT, accessToken, base64url, bountyParameters, digest, handleRequest, randomValue, runScheduledSafely, scheduledRun, seal, unseal} from '../src/worker.mjs';
+import {AUTHORIZATION_ENDPOINT, REQUESTED_SCOPE, TOKEN_ENDPOINT, accessToken as workerAccessToken, base64url, bountyParameters, digest, handleRequest as workerHandleRequest, randomValue, runScheduledSafely as workerRunScheduledSafely, scheduledRun as workerScheduledRun, seal, unseal} from '../src/worker.mjs';
 import worker from '../src/worker.mjs';
 
 const schema = readFileSync(new URL('../schema.sql', import.meta.url), 'utf8');
+function workersFetchContract(fetcher) {
+  if (!fetcher) return undefined;
+  return async (url, options = {}) => {
+    // Unlike Node/browser Fetch, Workers only implements follow and manual.
+    // Source: developers.cloudflare.com/workers/runtime-apis/request/
+    if (options.redirect !== undefined && !['follow', 'manual'].includes(options.redirect)) {
+      throw new TypeError('Workers supports only follow or manual redirect modes');
+    }
+    assert.equal(options.redirect, 'manual', 'Credential-bearing requests must never follow redirects');
+    return fetcher(url, options);
+  };
+}
+const handleRequest = (request, env, fetcher) => workerHandleRequest(request, env, workersFetchContract(fetcher));
+const accessToken = (env, fetcher, ...args) => workerAccessToken(env, workersFetchContract(fetcher), ...args);
+const scheduledRun = (env, fetcher, ...args) => workerScheduledRun(env, workersFetchContract(fetcher), ...args);
+const runScheduledSafely = (env, fetcher, ...args) => workerRunScheduledSafely(env, workersFetchContract(fetcher), ...args);
+
 function setup() {
   const sqlite = new DatabaseSync(':memory:'); sqlite.exec(schema);
   const adapter = {
@@ -186,7 +203,7 @@ test('successful callback persists encrypted credentials and strips code from re
   let calls = 0;
   const exchange = async (url, options) => {
     calls++; assert.equal(url, 'https://api.whop.com/oauth/token'); assert.equal(options.method, 'POST');
-    assert.equal(options.redirect, 'error'); assert.equal(options.headers['Content-Type'], 'application/json');
+    assert.equal(options.redirect, 'manual'); assert.equal(options.headers['Content-Type'], 'application/json');
     const body = JSON.parse(options.body);
     assert.equal(body.grant_type, 'authorization_code'); assert.equal(body.code, 'private-callback-code');
     assert.equal(await digest(body.code_verifier), auth.searchParams.get('code_challenge'));
@@ -297,6 +314,62 @@ test('token-exchange failure gives a safe reason and never retries the consumed 
   assert.equal(calls, 1);
 });
 
+test('token endpoint redirects are rejected without forwarding or retrying the authorization code', async () => {
+  for (const status of [301, 302, 303, 307, 308]) {
+    const {env} = setup(), owner = await ownerLogin(env), auth = await authorizeStart(env, owner);
+    let calls = 0;
+    const exchange = async (url, options) => {
+      calls++; assert.equal(url, TOKEN_ENDPOINT); assert.equal(options.redirect, 'manual');
+      assert.equal(JSON.parse(options.body).code, 'fixture-redirect-code');
+      return new Response('', {status, headers: {Location: 'https://unrelated.example.invalid/collect'}});
+    };
+    const url = '/oauth/callback?code=fixture-redirect-code&state=' + auth.searchParams.get('state');
+    const response = await handleRequest(req(env, url, {headers: {Cookie: owner.cookie}}), env, exchange);
+    assert.equal(response.headers.get('Location'), '/oauth/result/token-exchange-failed');
+    const saved = await credentials(env);
+    assert.equal(saved.status, 'reauthorization_required');
+    assert.equal(saved.encrypted_payload, null);
+    const message = await handleRequest(req(env, response.headers.get('Location')), env, forbiddenFetch);
+    const text = await message.text();
+    assert.ok(!text.includes('unrelated.example.invalid'));
+    assert.ok(!text.includes('fixture-redirect-code'));
+    await handleRequest(req(env, url, {headers: {Cookie: owner.cookie}}), env, exchange);
+    assert.equal(calls, 1);
+    assert.equal((await credentials(env)).version, saved.version);
+  }
+});
+
+test('refresh endpoint redirects fail closed without following or replaying a rotating token', async () => {
+  const {env} = setup(); await seedTokens(env, Date.now() - 1);
+  let calls = 0;
+  const refresh = async (url, options) => {
+    calls++; assert.equal(url, TOKEN_ENDPOINT); assert.equal(options.redirect, 'manual');
+    assert.equal(JSON.parse(options.body).refresh_token, 'refresh-old');
+    return new Response('', {status: 307, headers: {Location: 'https://unrelated.example.invalid/collect'}});
+  };
+  await assert.rejects(accessToken(env, refresh), /authorization was rejected/);
+  assert.equal((await credentials(env)).status, 'reauthorization_required');
+  await assert.rejects(accessToken(env, refresh), /authorization required/);
+  assert.equal(calls, 1);
+});
+
+test('bounty discovery rejects provider redirects without forwarding bearer credentials or changing their store', async () => {
+  for (const status of [301, 302, 303, 307, 308]) {
+    const {env} = setup(); await seedTokens(env, Date.now() + 3600_000);
+    const before = await credentials(env); let calls = 0;
+    const listed = async (url, options) => {
+      calls++; assert.ok(url.startsWith('https://api.whop.com/api/v1/bounties?'));
+      assert.equal(options.redirect, 'manual'); assert.equal(options.headers.Authorization, 'Bearer access-old');
+      return new Response('', {status, headers: {Location: 'https://unrelated.example.invalid/collect'}});
+    };
+    const response = await handleRequest(apiRequest(env, '/api/bounties?business_goal_type=clipping'), env, listed);
+    assert.equal(response.status, 502);
+    assert.ok(!(await response.text()).includes('unrelated.example.invalid'));
+    assert.equal(calls, 1);
+    assert.deepEqual(await credentials(env), before);
+  }
+});
+
 test('safe callback result pages are fixed messages and retain no-referrer/no-store', async () => {
   const {env} = setup();
   for (const reason of ['owner-session-required', 'authorization-request-unavailable', 'provider-denied', 'token-exchange-failed']) {
@@ -385,11 +458,11 @@ test('scheduled renewal refreshes ahead of expiry and stores sanitized durable d
 test('production fetch entry ignores Cloudflare ExecutionContext and uses actual fetch', async () => {
   const {env} = setup(); await seedTokens(env, Date.now() + 3600_000);
   const original = globalThis.fetch; let calls = 0;
-  globalThis.fetch = async (url, options) => {
+  globalThis.fetch = workersFetchContract(async (url, options) => {
     calls++; assert.ok(url.startsWith('https://api.whop.com/api/v1/bounties?'));
     assert.equal(options.headers.Authorization, 'Bearer access-old');
     return new Response(JSON.stringify({data: [], page_info: {has_next_page: false}}));
-  };
+  });
   try {
     const response = await worker.fetch(apiRequest(env, '/api/bounties?business_goal_type=clipping'), env, {waitUntil() {}});
     assert.equal(response.status, 200); assert.equal(calls, 1);

@@ -270,3 +270,11 @@ With a prepared Chromium installation, set `CHROMIUM_EXECUTABLE_PATH` to that
 binary instead of downloading another browser. Tests use isolated SQLite and
 synthetic credentials, intercept all network traffic, and never authorize Whop
 or touch production D1. CI uses the locked Playwright development dependency.
+
+
+Worker outbound HTTP requests use `redirect: "manual"` and explicitly reject
+non-2xx responses. Workers does not implement the standard `"error"` mode and
+throws before HTTP when it is supplied. Redirects are not automatically
+followed, so OAuth codes and bearer tokens cannot be forwarded to another
+endpoint. HTTP test doubles enforce this Workers runtime contract.
+See [Workers Request documentation](https://developers.cloudflare.com/workers/runtime-apis/request/).
