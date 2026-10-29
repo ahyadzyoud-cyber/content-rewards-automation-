@@ -26,13 +26,27 @@ jobs:
           from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
           origin = 'https://content-rewards-whop.content-rewards-dc8a4aba9226.workers.dev'
-          with urlopen(origin + '/health', timeout=30) as response:
-              assert response.status == 200
-              health = json.load(response)
-          assert health['status'] == 'ok'
-          assert health['live_publishing'] is False
-          assert health['requested_scope'] == 'bounty:basic:read'
-          assert health['production_verified'] is False
+          try:
+              with urlopen(origin + '/health', timeout=30) as response:
+                  assert response.status == 200
+                  health = json.load(response)
+              assert health['status'] == 'ok'
+              assert health['live_publishing'] is False
+              assert health['requested_scope'] == 'bounty:basic:read'
+              assert health['production_verified'] is False
+          except Exception as error:
+              diagnostic = {'stage': 'health', 'error_type': type(error).__name__}
+              if isinstance(error, HTTPError):
+                  diagnostic['http_status'] = error.code
+                  # This deployment's errors are sanitized; never emit unknown HTML.
+                  try:
+                      body = json.load(error)
+                      if isinstance(body, dict) and isinstance(body.get('error'), str):
+                          diagnostic['worker_error'] = body['error'][:200]
+                  except Exception:
+                      pass
+              print('::error title=Whop HTTPS diagnostic::' + json.dumps(diagnostic))
+              raise SystemExit(1)
 
           class NoRedirect(HTTPRedirectHandler):
               def redirect_request(self, req, fp, code, msg, headers, newurl):
@@ -42,10 +56,17 @@ jobs:
               build_opener(NoRedirect).open(Request(origin + '/oauth/callback'), timeout=30)
               raise AssertionError('A callback without owner state must redirect safely')
           except HTTPError as response:
-              assert response.code == 303
-              assert response.headers['Location'] == '/oauth/result'
-              assert response.headers['Cache-Control'] == 'no-store'
-              assert response.headers['Referrer-Policy'] == 'no-referrer'
+              valid = (response.code == 303
+                       and response.headers['Location'] == '/oauth/result'
+                       and response.headers['Cache-Control'] == 'no-store'
+                       and response.headers['Referrer-Policy'] == 'no-referrer')
+              if not valid:
+                  print('::error title=Whop callback diagnostic::' + json.dumps({
+                      'stage': 'callback', 'http_status': response.code,
+                      'relative_clean_redirect': response.headers['Location'] == '/oauth/result',
+                      'cache_control_ok': response.headers['Cache-Control'] == 'no-store',
+                      'referrer_policy_ok': response.headers['Referrer-Policy'] == 'no-referrer'}))
+                  raise SystemExit(1)
           print(json.dumps({'https_verified': True, 'database_health': 'ok',
                             'invalid_callback_safely_redirected': True,
                             'owner_configuration_complete': health['owner_configuration_complete'],
