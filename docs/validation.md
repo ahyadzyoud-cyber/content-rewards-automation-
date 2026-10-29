@@ -171,3 +171,66 @@ passed its configured GitHub Checks workflow
 including Python tests/lint/build and the added Node broker security suite.
 The API confirms success; detailed log download is blocked by the current
 network policy, so no additional remote test-count claim is inferred.
+
+
+## Live free Whop deployment — 2026-10-29
+
+The owner published the updated environment and supplied Cloudflare authorization
+securely. The active environment version changed to
+`cecfgver_6ae3291577fc81999373cf2ee3f34a69`; no draft was present at the initial
+read, and live Cloudflare account/subscription API calls returned HTTP200.
+The account had no account subscriptions, confirming default Workers Free.
+Its missing `workers.dev` namespace was initialized through the official API,
+then the existing project's single `content-rewards-whop` Worker and private D1
+database were deployed. The health update reused the same database and secret
+bindings. No paid subscription or second Codex environment was created.
+
+The exact callback is:
+`https://content-rewards-whop.content-rewards-dc8a4aba9226.workers.dev/oauth/callback`.
+Public health checks were added so real D1/encryption-key readiness can be
+verified before the owner configures a Whop app or login password. The renewal
+cron is installed every 30 minutes; a real grant and automatic renewal remain
+unverified.
+
+Whop's live issuer metadata (`api.whop.com/.well-known/openid-configuration`)
+resolved the permission question: it advertises `bounty:basic:read`, but neither
+`bounty` nor `bounty:basic`. The List Bounties contract agrees. The latest owner
+request was to verify the official read permission before consent; broker code,
+reader status, documentation and tests now use only that advertised read scope,
+without OpenID or write permissions. Earlier exact-basic instructions above are
+historical. No actual consent request was made.
+
+Affected local checks passed: 23 broker tests after the scope correction, the
+new database/key public health test, 28 Python broker/API/workflow checks, and
+two focused client-identity regressions. No dependencies, project image or
+media pipeline were rebuilt. Source CI run
+[40864488496](https://github.com/ahyadzyoud-cyber/content-rewards-automation-/actions/runs/40864488496)
+passed; it includes Python checks/build and the broker suite.
+
+The current cloud environment correctly blocked direct requests to the newly
+created Worker hostname because that exact destination did not exist before
+deployment. A narrow destination, real `WHOP_BROKER_URL`, optional personal
+`WHOP_BROKER_API_TOKEN`, and refreshed startup instructions were saved in a new
+draft; the tool confirms **requires_publish=true**. Existing secrets and
+optional `WHOP_ACCESS_TOKEN` were preserved.
+
+Public endpoint verification used a standard GitHub-hosted runner on the
+confirmed public repository, with no secrets, artifacts or cache. Initial probes
+failed with Cloudflare error1010. Official Cloudflare documentation explicitly
+identifies default Python urllib identity as a cause on workers.dev and
+prescribes a descriptive application User-Agent. Applying
+`ContentRewardsAutomation/0.1` resolved the issue; the same identity is now sent
+by the private Python broker client. See the
+[official diagnosis](https://developers.cloudflare.com/support/troubleshooting/http-status-codes/cloudflare-1xxx-errors/error-1010/).
+
+[HTTPS verification run40865214345](https://github.com/ahyadzyoud-cyber/content-rewards-automation-/actions/runs/40865214345)
+**passed**. It verified TLS, HTTP200 database/key health, the exact read scope,
+live publishing false, and a missing-state callback's clean HTTP303 redirect
+with no-store/no-referrer headers. Owner configuration is still incomplete:
+WHOP_CLIENT_ID and OWNER_PASSWORD must be configured securely, and the owner
+must complete legitimate Whop consent. No real campaign, token rotation,
+publication, or earnings is claimed verified by this health check.
+
+The final client-identity source change also passed
+[CI run40865213842](https://github.com/ahyadzyoud-cyber/content-rewards-automation-/actions/runs/40865213842)
+for commit `8958a6337c49b7860be6999fb549faf3779fccc1`.

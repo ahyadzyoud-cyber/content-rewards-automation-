@@ -220,3 +220,13 @@ read successfully from the public
 [`cloudflare/cloudflare-docs` repository](https://github.com/cloudflare/cloudflare-docs/tree/production/src/content/docs),
 including its D1 pricing and free-limit FAQ partials. This verifies documentation;
 it does not verify an owner's Cloudflare plan or production deployment.
+
+
+For non-browser health/private API clients on `workers.dev`, identify this
+application as `ContentRewardsAutomation/0.1`. Cloudflare's managed Browser
+Integrity Check rejects some library-default identities, including Python
+urllib, with error1010. The private reader and public verification workflow now
+use this descriptive identity as prescribed by
+[Cloudflare](https://developers.cloudflare.com/support/troubleshooting/http-status-codes/cloudflare-1xxx-errors/error-1010/).
+The actual [HTTPS check passed](https://github.com/ahyadzyoud-cyber/content-rewards-automation-/actions/runs/40865214345);
+it does not imply owner OAuth or production token renewal has passed.

@@ -10,6 +10,9 @@ account. Its exact callback is:
 https://content-rewards-whop.content-rewards-dc8a4aba9226.workers.dev/oauth/callback
 ```
 
+[Public HTTPS verification passed](https://github.com/ahyadzyoud-cyber/content-rewards-automation-/actions/runs/40865214345),
+including database/key health and clean invalid-callback redirects.
+
 The live grant is not yet authorized. Configure the owner-controlled Whop app and
 Cloudflare secrets following [current owner steps](next-actions.md). The general
 deployment instructions below are retained for maintenance, not a request to
