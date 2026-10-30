@@ -540,3 +540,42 @@ changed; there is no need for another environment Publish or callback redeploy.
 The Python application code is updated through the existing source checkout and
 GitHub. No live publication, campaign submission, confirmed reward or payout
 occurred, and no first real video is represented as ready for approval.
+
+
+## Broad authorized discovery and new source access
+
+On 2026-10-30 the optional Whop goal filter was removed through an explicit
+read-only `all` mode. The same existing owner grant returned 63 open bounties,
+completely paginated; 12 had no goal and were missed by the old targeted queries.
+Full briefs were assessed privately for actual video relevance. The original
+two blocked offers stayed deferred. New video/promotion leads require unresolved
+livestream, specific Story/account, asset/automation, jurisdiction or enrollment
+conditions. Other records were engagement/DM/review tasks, unrelated work or
+sale-conversion offers; they were not misrepresented as eligible video rewards.
+
+Official anonymous marketplace searches, using the verified dated API contract,
+returned 500 records / 479 distinct public products across five bounded queries.
+Pagination remained incomplete, and products/courses were not counted as funded
+campaigns. New original-content and supplied-footage leads were saved privately
+with missing requirements. Complete source materials, budget and eligibility
+were not invented. Several zero-priced join variants were verified read-only;
+no enrollment, checkout, paid feature, purchase or campaign submission occurred.
+
+The existing free Worker received source-only updates that add broad bounty
+search and three bounded anonymous marketplace lead searches on the six-hour
+cadence. Product metadata stays in a separate research-only field; credentials
+are never sent with public searches. Query failure cannot stop bounty snapshot
+persistence. D1 schema/encryption purposes, secret bindings, public variables and
+schedules were preserved and checked after deployment. Health returned 200 with
+publishing false. Targeted validation passed46 Worker and124 Python
+reader/ranking/workflow cases, plus Ruff/diff checks. Actual v2 cron observations
+are checked separately from configuration and simulated tests.
+
+A direct campaign URL on contentrewards.com was found in a public Whop product.
+It and alternative official provider homepages remain proxy-blocked. An additive
+existing-environment draft was saved with10 exact additional hosts and corrected
+startup guidance, preserving known hosts, package-manager presets, scripts and
+credential destinations. The tool explicitly reports requires_publish=true;
+this save is not evidence that running network access changed. No new Codex
+environment or dashboard was created. No real campaign video, accepted
+submission, confirmed reward or payout is claimed.

@@ -8,7 +8,7 @@ Read [current Whop findings](docs/live-whop-findings.md), [Vyro access restricti
 
 ```bash
 # Reuses the authorized cloud broker; never send a token in chat.
-rewards discover-whop --country JO --goal both
+rewards discover-whop --country JO --goal all
 ```
 
 The owner-operated [Whop OAuth broker](cloud/whop/README.md) now implements

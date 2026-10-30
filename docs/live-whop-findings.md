@@ -209,3 +209,25 @@ callback URL, access token or refresh token into chat or a terminal command.
 A deployable callback implementation does not establish that a public callback
 already exists. No real owner grant, live token rotation, Jordan-filtered bounty
 response or CPM campaign was verified during this documentation review.
+
+## Broader discovery includes untagged offers
+
+The official [List Bounties](https://docs.whop.com/api-reference/beta/bounties/list-bounties.md)
+contract makes `business_goal_type` optional and states that bounties created
+before its goal taxonomy never match that filter. Searching only `clipping` and
+`ugc_content` therefore does not cover all account-visible opportunities.
+
+`rewards discover-whop` now defaults to `--goal all`, omitting that optional
+provider filter while retaining the creator-residency filter. Whop explicitly
+includes worldwide bounties admitting Jordan residents in `country=JO` results.
+No minimum reward is imposed. Untagged and other-goal records remain research
+observations; they are not silently classified as video campaigns or granted
+eligibility, material rights or submission permission.
+
+The existing cloud cron now retains a targeted clipping snapshot and a broad
+all-goal snapshot, still bounded to two pages of 50 records per snapshot with
+incomplete pagination explicitly reported. It reuses the existing encrypted D1
+keys and refreshes an old targeted-only snapshot at its next scheduled run.
+The historical `ugc_content` storage key is unchanged, while the report itself
+is labeled `business_goal_type=all`. No additional OAuth scope, schema migration,
+credential change, paid source or publishing action is required.

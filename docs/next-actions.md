@@ -11,20 +11,24 @@ required for the code changes in this update. Keep
 ## Next: a fulfillable brief and licensed materials
 
 The current priority is a fulfillable campaign and approved source materials.
-The latest full official detail checks still show only two known offers, both
-requiring live participation. One requests attached clips, without a social
-publication requirement; the other requires a TikTok slideshow. Both are
-temporarily deferred for automated execution and retained in the research queue.
-Do not prepare a YouTube/Instagram MP4 as a substitute for either workflow.
-See [the mandatory compliance procedure](publication-compliance.md).
+The broader official scan now includes 63 open bounties, including older untagged
+offers omitted by the former campaign-type filters. The original two offers
+remain deferred. Public marketplace research also found new original-content
+and footage-supplied leads; these are not yet verified funded/eligible campaigns.
+See [current source findings](discovery-sources-current.md) and
+[the mandatory compliance procedure](publication-compliance.md).
 
-To prepare the first real video, provide the complete official brief and
-campaign-approved materials with documented reuse permission for an offer that
-permits the proposed automated editing/posting workflow. Share source files or
-a permitted provider export through private file delivery, without credentials.
-The agent can then verify the required platform and request only that account's
-authorization. A website link or verbal permission to use someone else's
-copyrighted footage is not sufficient license evidence.
+**Current owner action:** review and Publish the pending access update in this
+existing cloud environment. It preserves the installed setup, credentials and
+existing hosts while adding the direct `contentrewards.com` source and exact
+alternative-provider homepage hosts. The platform reports `requires_publish`;
+the saved draft has not changed current network access. No new environment,
+secrets, paid services or Whop consent are required.
+
+After access is active, the agent should obtain full briefs and campaign-supplied
+assets directly through permitted sources. Do not ask the owner to manually
+supply available campaign materials. Ask only for required account-owned
+authorization, verification or permission once a specific offer is substantiated.
 
 1. Open the existing [owner opportunities page](https://content-rewards-whop.content-rewards-dc8a4aba9226.workers.dev/opportunities)
    and sign in with the existing owner login. Review the current private briefs

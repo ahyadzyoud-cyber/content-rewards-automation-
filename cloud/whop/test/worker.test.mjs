@@ -72,10 +72,10 @@ async function seedTokens(env, expiresAt, refresh = 'refresh-old', access = 'acc
 }
 async function credentials(env) { return env.DB.prepare("SELECT * FROM whop_credentials WHERE owner='owner'").first(); }
 function apiRequest(env, path) { return req(env, path, {headers: {Authorization: 'Bearer ' + env.WHOP_BROKER_API_TOKEN}}); }
-async function seedSnapshots(env, now) {
+async function seedSnapshots(env, now, broad = true) {
   for (const goal of ['clipping', 'ugc_content']) {
     await env.DB.prepare('INSERT OR REPLACE INTO whop_observations(goal,encrypted_payload,observed_at,authorization_generation) VALUES(?,?,?,0)')
-      .bind(goal, await seal(env, 'whop-observations:' + goal + ':v1', {records: [], pricing_model: 'fixed_reward_per_approved_submission'}), now).run();
+      .bind(goal, await seal(env, 'whop-observations:' + goal + ':v1', {records: [], business_goal_type: broad && goal === 'ugc_content' ? 'all' : goal, discovery_strategy: broad && goal === 'ugc_content' ? 'all_open_goals_including_untagged_v2' : 'targeted_goal_v1', pricing_model: 'fixed_reward_per_approved_submission'}), now).run();
   }
 }
 
@@ -537,6 +537,28 @@ test('private bounty API forwards only bounded official GET filters and never au
   assert.equal((await handleRequest(req(env, '/api/bounties?business_goal_type=clipping', {method: 'POST'}), env, forbiddenFetch)).status, 404);
 });
 
+test('explicit all-goal discovery omits the optional provider filter and retains untagged offers', async () => {
+  const {env} = setup(); await seedTokens(env, Date.now() + 3600_000);
+  const records = [{id: 'bnty_untagged', business_goal_type: null}, {id: 'bnty_other', business_goal_type: 'other'}];
+  let calls = 0;
+  const external = async (url, options) => {
+    calls++; const target = new URL(url);
+    assert.equal(target.origin + target.pathname, 'https://api.whop.com/api/v1/bounties');
+    assert.equal(target.searchParams.has('business_goal_type'), false);
+    assert.equal(target.searchParams.get('country'), 'JO');
+    assert.equal(target.searchParams.get('status'), 'open');
+    assert.equal(target.searchParams.get('first'), '100');
+    assert.equal(options.method, 'GET');
+    assert.equal(options.headers.Authorization, 'Bearer access-old');
+    return new Response(JSON.stringify({data: records, page_info: {has_next_page: false}}));
+  };
+  const response = await handleRequest(apiRequest(env, '/api/bounties?business_goal_type=all'), env, external);
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).data, records);
+  assert.equal(calls, 1);
+  assert.equal(REQUESTED_SCOPE, 'bounty:basic:read');
+});
+
 test('scheduled renewal refreshes ahead of expiry and stores sanitized durable diagnostics', async () => {
   const {env} = setup(), now = Date.parse('2026-10-29T01:30:00Z'); await seedTokens(env, now + 20 * 60_000);
   await seedSnapshots(env, now);
@@ -593,9 +615,115 @@ test('delayed cron discovery uses durable due time and avoids repeated recent sn
   let calls = 0;
   const external = async () => { calls++; return new Response(JSON.stringify({data: [], page_info: {has_next_page: false}})); };
   const first = await scheduledRun(env, external, now);
-  assert.equal(first.status, 'private_fixed_bounties_observed'); assert.equal(calls, 2);
+  assert.equal(first.status, 'private_fixed_bounties_observed'); assert.equal(calls, 5);
   const again = await scheduledRun(env, forbiddenFetch, now + 60_000);
-  assert.equal(again.status, 'renewal_checked'); assert.equal(calls, 2);
+  assert.equal(again.status, 'renewal_checked'); assert.equal(calls, 5);
+});
+
+test('the next cron upgrades recent targeted snapshots to a broad encrypted scan without changing D1 keys', async () => {
+  const {env, sqlite} = setup(), now = Date.now(); await seedTokens(env, now + 3600_000);
+  await seedSnapshots(env, now, false);
+  const goals = [];
+  const external = async url => {
+    const target = new URL(url);
+    if (target.pathname.endsWith('/products')) return new Response(JSON.stringify({data: [], page_info: {has_next_page: false}}));
+    const goal = target.searchParams.get('business_goal_type'); goals.push(goal);
+    return new Response(JSON.stringify({data: goal === null ? [{id: 'bnty_legacy', business_goal_type: null}] : [], page_info: {has_next_page: false}}));
+  };
+  const result = await scheduledRun(env, external, now + 60_000);
+  assert.equal(result.status, 'private_fixed_bounties_observed');
+  assert.deepEqual(goals, ['clipping', null]);
+  assert.deepEqual(result.summaries.map(item => item.goal), ['clipping', 'all']);
+  const rows = sqlite.prepare('SELECT * FROM whop_observations ORDER BY goal').all();
+  assert.deepEqual(rows.map(row => row.goal), ['clipping', 'ugc_content']);
+  assert.ok(!rows[1].encrypted_payload.includes('bnty_legacy'));
+  const broad = await unseal(env, 'whop-observations:ugc_content:v1', rows[1].encrypted_payload);
+  assert.equal(broad.business_goal_type, 'all');
+  assert.equal(broad.discovery_strategy, 'all_open_goals_including_untagged_v2');
+  assert.equal(broad.records[0].business_goal_type, null);
+  assert.equal(broad.eligible_campaigns_verified, false);
+  assert.equal(broad.live_publication_performed, false);
+  assert.equal((await scheduledRun(env, forbiddenFetch, now + 120_000)).status, 'renewal_checked');
+  const owner = await ownerLogin(env);
+  const page = await handleRequest(req(env, '/opportunities', {headers: {Cookie: owner.cookie}}), env, forbiddenFetch);
+  const content = await page.text();
+  assert.ok(content.includes('All open goals, including untagged offers'));
+  assert.ok(content.includes('goal: Untagged'));
+});
+
+test('broad and targeted saved offers are not displayed as duplicate opportunities', async () => {
+  const {env} = setup(), now = Date.now(); await seedTokens(env, now + 3600_000);
+  await scheduledRun(env, async () => new Response(JSON.stringify({data: [{id: 'bnty_overlap', title: 'One observed opportunity', currency: 'usd', net_reward_amount: 0.01, business_goal_type: 'clipping'}], page_info: {has_next_page: false}})), now);
+  const owner = await ownerLogin(env);
+  const response = await handleRequest(req(env, '/opportunities', {headers: {Cookie: owner.cookie}}), env, forbiddenFetch);
+  assert.equal((await response.text()).split('<h2>One observed opportunity</h2>').length - 1, 1);
+});
+
+test('scheduled public marketplace searches send no credentials and keep deduplicated leads separate from bounties', async () => {
+  const {env, sqlite} = setup(), now = Date.now(); await seedTokens(env, now + 3600_000);
+  const searches = [];
+  await scheduledRun(env, async (url, options) => {
+    const target = new URL(url);
+    assert.equal(target.origin, 'https://api.whop.com');
+    assert.equal(options.method, 'GET'); assert.equal(options.redirect, 'manual');
+    assert.equal(options.headers['Api-Version-Date'], '2026-10-28');
+    if (target.pathname.endsWith('/bounties')) return new Response(JSON.stringify({data: [{id: 'bnty_real'}], page_info: {has_next_page: false}}));
+    assert.equal(target.pathname, '/api/v1/products');
+    assert.equal(target.searchParams.get('first'), '20');
+    assert.equal(target.searchParams.has('account_id'), false);
+    assert.equal(new Headers(options.headers).has('Authorization'), false);
+    assert.equal(new Headers(options.headers).has('Cookie'), false);
+    assert.ok(!url.includes('access-old'));
+    const query = target.searchParams.get('query'); searches.push(query);
+    return new Response(JSON.stringify({data: [{id: 'prod_research', title: 'Public lead', headline: 'Unverified program', account: {private_field: 'not-retained'}, plans: [{price: 500}], arbitrary: 'not-retained'}], page_info: {has_next_page: query === 'ugc'}}));
+  }, now);
+  assert.deepEqual(searches, ['content rewards', 'ugc', 'clipping']);
+  const row = sqlite.prepare("SELECT encrypted_payload FROM whop_observations WHERE goal='ugc_content'").get();
+  assert.ok(!row.encrypted_payload.includes('Public lead'));
+  const report = await unseal(env, 'whop-observations:ugc_content:v1', row.encrypted_payload);
+  assert.deepEqual(report.records, [{id: 'bnty_real'}]);
+  assert.deepEqual(report.marketplace_leads.leads, [{id: 'prod_research', title: 'Public lead', headline: 'Unverified program', source_api_url: 'https://api.whop.com/api/v1/products/prod_research'}]);
+  assert.deepEqual(report.marketplace_leads.queries.map(query => query.pagination_complete), [true, false, true]);
+  assert.ok(report.marketplace_leads.queries.every(query => query.status === 'observed' && query.pages_fetched === 1));
+  assert.equal(report.marketplace_leads.pricing_model, 'unverified_marketplace_products');
+  assert.equal(report.marketplace_leads.eligible_campaigns_verified, false);
+  assert.equal(report.marketplace_leads.live_publication_performed, false);
+  assert.ok(!JSON.stringify(report).includes('not-retained'));
+});
+
+test('public marketplace failures stay sanitized and do not prevent bounty snapshots or later searches', async () => {
+  const {env, sqlite} = setup(), now = Date.now(); await seedTokens(env, now + 3600_000);
+  const queries = [];
+  const result = await scheduledRun(env, async (url, options) => {
+    const target = new URL(url);
+    if (target.pathname.endsWith('/bounties')) return new Response(JSON.stringify({data: [{id: 'bnty_preserved'}], page_info: {has_next_page: false}}));
+    assert.equal(new Headers(options.headers).has('Authorization'), false);
+    const query = target.searchParams.get('query'); queries.push(query);
+    if (query === 'content rewards') return new Response('private-error-body', {status: 302, headers: {Location: 'https://other.invalid/purchase'}});
+    if (query === 'ugc') throw new Error('private-access-token-in-error');
+    return new Response(JSON.stringify({data: [{id: 'prod_good', title: 'One retained lead', headline: null}, {id: 'https://other.invalid', title: 'bad'}], page_info: {has_next_page: false}}));
+  }, now);
+  assert.equal(result.status, 'private_fixed_bounties_observed');
+  assert.deepEqual(queries, ['content rewards', 'ugc', 'clipping']);
+  assert.equal(sqlite.prepare('SELECT COUNT(*) AS count FROM whop_observations').get().count, 2);
+  const row = sqlite.prepare("SELECT encrypted_payload FROM whop_observations WHERE goal='ugc_content'").get();
+  const report = await unseal(env, 'whop-observations:ugc_content:v1', row.encrypted_payload);
+  assert.deepEqual(report.records, [{id: 'bnty_preserved'}]);
+  assert.deepEqual(report.marketplace_leads.queries.map(query => query.status), ['http_error', 'invalid_or_unavailable', 'partial_invalid_records']);
+  assert.ok(report.marketplace_leads.queries.every(query => query.pagination_complete === false));
+  assert.equal(report.marketplace_leads.leads.length, 1);
+  for (const secret of ['private-error-body', 'private-access-token-in-error', 'other.invalid', 'access-old']) assert.ok(!JSON.stringify(report).includes(secret));
+});
+
+test('an existing all-goal v1 snapshot is refreshed once to add the public marketplace lead scan', async () => {
+  const {env, sqlite} = setup(), now = Date.now(); await seedTokens(env, now + 3600_000);
+  await seedSnapshots(env, now);
+  const legacy = await seal(env, 'whop-observations:ugc_content:v1', {records: [], business_goal_type: 'all', discovery_strategy: 'all_open_goals_including_untagged_v1'});
+  sqlite.prepare("UPDATE whop_observations SET encrypted_payload=? WHERE goal='ugc_content'").run(legacy);
+  let calls = 0;
+  const first = await scheduledRun(env, async () => { calls++; return new Response(JSON.stringify({data: [], page_info: {has_next_page: false}})); }, now + 60_000);
+  assert.equal(first.status, 'private_fixed_bounties_observed'); assert.equal(calls, 5);
+  assert.equal((await scheduledRun(env, forbiddenFetch, now + 120_000)).status, 'renewal_checked');
 });
 
 test('new grant while old discovery HTTP is in flight cannot save stale account records', async () => {
@@ -613,12 +741,13 @@ test('scheduled discovery persists only encrypted fixed-bounty snapshots and rep
   const {env, sqlite} = setup(), now = Date.parse('2026-10-29T06:00:00Z'); await seedTokens(env, now + 3600_000);
   let calls = 0;
   const external = async (url, options) => {
-    calls++; assert.equal(options.method, 'GET'); assert.ok(url.startsWith('https://api.whop.com/api/v1/bounties?'));
+    calls++; assert.equal(options.method, 'GET'); assert.ok(url.startsWith('https://api.whop.com/api/v1/'));
     const target = new URL(url);
+    if (target.pathname.endsWith('/products')) return new Response(JSON.stringify({data: [], page_info: {has_next_page: false}}));
     const next = !target.searchParams.has('after');
     return new Response(JSON.stringify({data: [{id: 'bnty_private', private_brief: 'never-public'}], page_info: {has_next_page: next, end_cursor: next ? 'cursor-one' : null}}));
   };
-  const result = await scheduledRun(env, external, now); assert.equal(result.status, 'private_fixed_bounties_observed'); assert.equal(calls, 4);
+  const result = await scheduledRun(env, external, now); assert.equal(result.status, 'private_fixed_bounties_observed'); assert.equal(calls, 7);
   const rows = sqlite.prepare('SELECT * FROM whop_observations').all(); assert.equal(rows.length, 2);
   assert.ok(!rows[0].encrypted_payload.includes('never-public'));
   const snapshots = await (await handleRequest(apiRequest(env, '/api/discovery/latest'), env)).json();

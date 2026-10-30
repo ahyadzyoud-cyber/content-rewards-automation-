@@ -100,6 +100,18 @@ def test_live_observation_gates_cannot_be_overridden_by_evidence(updates):
     assert not result["selectable"]
 
 
+@pytest.mark.parametrize("goal", [None, "other", "post_engagement"])
+def test_all_goal_research_retains_uncategorized_offers_without_expanding_video_eligibility(goal):
+    reviewed = verification()
+    result = rank_whop_bounties(report(observation(business_goal_type=goal), business_goal_type="all",
+                                      discovery_strategy="all_open_goals"),
+                               {reviewed.bounty_id: reviewed}, now=NOW)
+    assert len(result) == 1 and result[0]["id"] == reviewed.bounty_id
+    assert result[0]["selectable"] is False and result[0]["score_out_of_10"] is None
+    assert "Clipping or UGC requirements are not confirmed" in result[0]["blockers"]
+    assert result[0]["publication_approved"] is False
+
+
 def test_stale_discovery_or_mismatched_country_cannot_be_cleared_by_fresh_review():
     reviewed = verification()
     for updates in ({"observed_at": (NOW - timedelta(days=8)).isoformat()},

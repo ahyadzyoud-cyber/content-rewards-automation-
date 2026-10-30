@@ -59,7 +59,8 @@ def parser() -> argparse.ArgumentParser:
     sub.add_parser("discover")
     whop = sub.add_parser("discover-whop")
     whop.add_argument("--country", default="JO")
-    whop.add_argument("--goal", choices=["clipping", "ugc_content", "both"], default="both")
+    whop.add_argument("--goal", choices=["all", "clipping", "ugc_content", "both"], default="all",
+                      help="All open goals includes older untagged offers; eligibility still needs verification")
     whop.add_argument("--max-pages", type=int, default=5)
     sub.add_parser("whop-status")
     whop_verify = sub.add_parser("verify-whop-bounty", help="Record a separately reviewed private bounty evidence file")

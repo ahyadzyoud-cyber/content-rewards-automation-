@@ -1,4 +1,4 @@
-"""Official read-only Whop clipping/UGC bounty observations.
+"""Official read-only Whop bounty observations, including untagged offers.
 
 Bounties pay fixed rewards for accepted work. They are not silently treated as
 CPM Content Rewards campaigns, and API visibility does not verify account,
@@ -21,6 +21,7 @@ API_VERSION_DATE = "2026-10-28"
 USER_AGENT = "ContentRewardsAutomation/0.1"
 MAX_RESPONSE_BYTES = 2_000_000
 DOCUMENTED_GOALS = {"clipping", "ugc_content"}
+DISCOVERY_MODES = DOCUMENTED_GOALS | {"all"}
 
 
 class WhopError(IntegrationError):
@@ -134,6 +135,7 @@ class WhopBounties:
 
     def __init__(self, access_token: str = "", *, broker_url: str = "", broker_token: str = "",
                  client: httpx.AsyncClient | None = None, api_version_date: str = API_VERSION_DATE):
+        self._broker = bool(broker_url or broker_token)
         if broker_url or broker_token:
             self._base = broker_origin(broker_url) + "/api"
             self._access_token = _token(broker_token)
@@ -189,12 +191,15 @@ class WhopBounties:
     async def list_open_bounties(self, country: str = "JO", business_goal_type: str = "clipping", *,
                                 first: int = 100, max_pages: int = 5) -> dict:
         country = _country(country)
-        if business_goal_type not in DOCUMENTED_GOALS:
-            raise WhopError("Discovery supports only documented clipping or UGC bounty goals")
+        if business_goal_type not in DISCOVERY_MODES:
+            raise WhopError("Choose all open goals, clipping, or UGC bounty discovery")
         if type(first) is not int or not 1 <= first <= 100 or type(max_pages) is not int or not 1 <= max_pages <= 20:
             raise WhopError("Use 1..100 results per page and 1..20 pages")
-        params = {"status": "open", "business_goal_type": business_goal_type,
-                  "country": country, "first": first}
+        params = {"status": "open", "country": country, "first": first}
+        # The optional provider filter excludes pre-taxonomy/untagged offers.
+        # "all" is our broker selector, never a provider goal value.
+        if business_goal_type != "all" or self._broker:
+            params["business_goal_type"] = business_goal_type
         observations, identifiers, cursors = [], set(), set()
         complete = False
         pages_fetched = 0
@@ -223,6 +228,7 @@ class WhopBounties:
         return {"provider": "whop", "pricing_model": "fixed_reward_per_approved_submission",
                 "observed_at": datetime.now(UTC).isoformat(), "api_version_date": self.api_version_date,
                 "country_filter": country, "business_goal_type": business_goal_type,
+                "discovery_strategy": "all_open_goals" if business_goal_type == "all" else "goal_filtered",
                 "pages_fetched": pages_fetched, "pagination_complete": complete,
                 "observations": observations, "eligible_campaigns_verified": False,
                 "live_publication_performed": False}

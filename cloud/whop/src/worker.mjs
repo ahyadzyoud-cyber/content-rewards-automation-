@@ -171,11 +171,15 @@ async function opportunities(request, env) {
     const report = await unseal(env, 'whop-observations:' + row.goal + ':v1', row.encrypted_payload);
     if (!report || !Array.isArray(report.records)) throw new SafeError('Private discovery snapshot is invalid', 503);
     const observed = Number.isSafeInteger(row.observed_at) && row.observed_at > 0 ? new Date(row.observed_at).toISOString() : 'Unknown';
-    snapshots.push('<li>' + text(row.goal) + ': observed ' + escape(observed) + '; pagination ' + (report.pagination_complete === true ? 'complete' : 'incomplete or unverified') + (row.observed_at < Date.now() - 6 * 3600_000 ? '; older than the six-hour discovery interval' : '') + '.</li>');
+    const label = report.business_goal_type === 'all' ? 'All open goals, including untagged offers' : row.goal;
+    snapshots.push('<li>' + text(label) + ': observed ' + escape(observed) + '; pagination ' + (report.pagination_complete === true ? 'complete' : 'incomplete or unverified') + (row.observed_at < Date.now() - 6 * 3600_000 ? '; older than the six-hour discovery interval' : '') + '.</li>');
     for (const record of report.records) {
       if (!record || typeof record !== 'object' || Array.isArray(record)) throw new SafeError('Private discovery snapshot is invalid', 503);
       const currency = typeof record.currency === 'string' && /^[A-Za-z]{3}$/.test(record.currency) ? record.currency.toUpperCase() : 'UNKNOWN';
-      offers.push({record, currency, net: amount(record.net_reward_amount), goal: row.goal});
+      const existing = typeof record.id === 'string' ? offers.findIndex(offer => offer.record.id === record.id) : -1;
+      const offer = {record, currency, net: amount(record.net_reward_amount), goal: report.business_goal_type === 'all' ? (record.business_goal_type || 'Untagged') : row.goal};
+      if (existing >= 0) offers[existing] = offer;
+      else offers.push(offer);
     }
   }
   // Compare quoted rewards only within a currency. Unknown amounts remain in
@@ -310,10 +314,13 @@ export function bountyParameters(url) {
   for (const key of url.searchParams.keys()) if (!allowed.has(key) || url.searchParams.getAll(key).length !== 1) throw new SafeError('Unsupported or repeated bounty filter', 400);
   if ((url.searchParams.get('country') || 'JO') !== 'JO' || (url.searchParams.get('status') || 'open') !== 'open') throw new SafeError('This owner integration reads only open bounties for Jordan residents', 400);
   const goal = url.searchParams.get('business_goal_type');
-  if (!['clipping', 'ugc_content'].includes(goal)) throw new SafeError('Choose clipping or ugc_content', 400);
+  if (!['clipping', 'ugc_content', 'all'].includes(goal)) throw new SafeError('Choose clipping, ugc_content or all', 400);
   const first = url.searchParams.get('first') || '100';
   if (!/^[1-9][0-9]{0,2}$/.test(first) || Number(first) > 100) throw new SafeError('Use a bounded bounty page size from 1 to 100', 400);
-  const params = new URLSearchParams({country: 'JO', status: 'open', business_goal_type: goal, first});
+  const params = new URLSearchParams({country: 'JO', status: 'open', first});
+  // The official goal filter excludes older untagged offers. An explicit
+  // broad scan omits that optional filter without changing the read scope.
+  if (goal !== 'all') params.set('business_goal_type', goal);
   const after = url.searchParams.get('after');
   if (after !== null) {
     if (!after || after.length > 4096 || /\s/.test(after)) throw new SafeError('Invalid bounty cursor', 400);
@@ -333,6 +340,37 @@ async function bountyPage(env, params, token, fetcher) {
   catch { throw new SafeError('Whop returned an invalid or oversized bounty page', 502); }
   if (!page || !Array.isArray(page.data) || page.data.length > Number(params.get('first')) || !page.page_info || typeof page.page_info.has_next_page !== 'boolean') throw new SafeError('Whop returned invalid bounty pagination', 502);
   return page;
+}
+async function marketplaceLeads(fetcher) {
+  const leads = new Map(), queries = [];
+  for (const query of ['content rewards', 'ugc', 'clipping']) {
+    const observed = {query, status: 'unavailable', http_status: null, pages_fetched: 0, pagination_complete: false};
+    try {
+      const url = 'https://api.whop.com/api/v1/products?' + new URLSearchParams({query, first: '20'});
+      // Public marketplace search is documented without account_id/auth. A
+      // product is a research lead, never a funded campaign or permission.
+      const result = await fetcher(url, {method: 'GET', headers: {Accept: 'application/json', 'Api-Version-Date': API_VERSION}, redirect: 'manual', signal: AbortSignal.timeout(20_000)});
+      observed.http_status = result.status;
+      if (!result.ok) { observed.status = 'http_error'; continue; }
+      const page = JSON.parse(decoder.decode(await readBytes(result.body, 1_000_000)));
+      if (!page || !Array.isArray(page.data) || page.data.length > 20 || typeof page.page_info?.has_next_page !== 'boolean') throw new Error();
+      observed.status = 'observed'; observed.pages_fetched = 1;
+      observed.pagination_complete = !page.page_info.has_next_page;
+      observed.returned_records = page.data.length;
+      for (const item of page.data) {
+        if (!item || typeof item.id !== 'string' || !/^prod_[A-Za-z0-9_-]{1,160}$/.test(item.id)
+            || typeof item.title !== 'string' || !item.title.trim() || item.title.length > 1000
+            || item.headline != null && (typeof item.headline !== 'string' || item.headline.length > 1000)) {
+          observed.status = 'partial_invalid_records'; observed.pagination_complete = false; continue;
+        }
+        if (!leads.has(item.id)) leads.set(item.id, {id: item.id, title: item.title, headline: item.headline ?? null,
+          source_api_url: 'https://api.whop.com/api/v1/products/' + item.id});
+      }
+    } catch { observed.status = 'invalid_or_unavailable'; }
+    finally { queries.push(observed); }
+  }
+  return {pricing_model: 'unverified_marketplace_products', queries, leads: [...leads.values()],
+    eligible_campaigns_verified: false, live_publication_performed: false};
 }
 async function status(env) {
   const db = database(env);
@@ -356,11 +394,18 @@ export async function scheduledRun(env, fetcher = fetch, now = Date.now()) {
   if (!authorization) throw new SafeError('Owner Whop authorization required', 409);
   const generation = authorization.authorization_generation;
   const snapshots = await db.prepare('SELECT COUNT(*) AS count,MIN(observed_at) AS oldest FROM whop_observations WHERE authorization_generation=?').bind(generation).first();
+  const broadRow = await db.prepare("SELECT encrypted_payload FROM whop_observations WHERE goal='ugc_content' AND authorization_generation=?").bind(generation).first();
+  const broadReady = broadRow && (await unseal(env, 'whop-observations:ugc_content:v1', broadRow.encrypted_payload)).discovery_strategy === 'all_open_goals_including_untagged_v2';
   // Persisted due times tolerate delayed cron delivery and recover partial runs.
-  if (snapshots?.count === 2 && snapshots.oldest > now - 6 * 3600_000) return {status: 'renewal_checked', live_publishing: false};
+  if (snapshots?.count === 2 && broadReady && snapshots.oldest > now - 6 * 3600_000) return {status: 'renewal_checked', live_publishing: false};
   const summaries = [];
   for (const goal of ['clipping', 'ugc_content']) {
-    const params = new URLSearchParams({country: 'JO', status: 'open', business_goal_type: goal, first: '50'});
+    // Preserve the existing D1 keys and authenticated-encryption purposes.
+    // The former UGC bucket now stores an explicitly labeled broad report;
+    // it includes UGC, other declared goals and pre-taxonomy untagged offers.
+    const discoveryGoal = goal === 'ugc_content' ? 'all' : goal;
+    const params = new URLSearchParams({country: 'JO', status: 'open', first: '50'});
+    if (discoveryGoal !== 'all') params.set('business_goal_type', discoveryGoal);
     const records = [], cursors = new Set(); let complete = false;
     for (let index = 0; index < 2; index++) {
       const page = await bountyPage(env, params, token, fetcher);
@@ -370,12 +415,13 @@ export async function scheduledRun(env, fetcher = fetch, now = Date.now()) {
       if (typeof cursor !== 'string' || !cursor || cursor.length > 4096 || /\s/.test(cursor) || cursors.has(cursor)) throw new SafeError('Whop returned invalid discovery pagination', 502);
       cursors.add(cursor); params.set('after', cursor);
     }
-    const report = {provider: 'whop', pricing_model: 'fixed_reward_per_approved_submission', country_filter: 'JO', business_goal_type: goal, observed_at: new Date(now).toISOString(), pagination_complete: complete, records, eligible_campaigns_verified: false, live_publication_performed: false};
+    const report = {provider: 'whop', pricing_model: 'fixed_reward_per_approved_submission', country_filter: 'JO', business_goal_type: discoveryGoal, discovery_strategy: discoveryGoal === 'all' ? 'all_open_goals_including_untagged_v2' : 'targeted_goal_v1', observed_at: new Date(now).toISOString(), pagination_complete: complete, records, eligible_campaigns_verified: false, live_publication_performed: false};
+    if (discoveryGoal === 'all') report.marketplace_leads = await marketplaceLeads(fetcher);
     if (encoder.encode(JSON.stringify(report)).length > 1_000_000) throw new SafeError('Private discovery snapshot exceeded its free storage safety limit', 502);
     const encrypted = await seal(env, 'whop-observations:' + goal + ':v1', report);
     const saved = await db.prepare("INSERT INTO whop_observations(goal,encrypted_payload,observed_at,authorization_generation) SELECT ?,?,?,? WHERE EXISTS(SELECT 1 FROM whop_credentials WHERE owner='owner' AND status='ready' AND authorization_generation=?) ON CONFLICT(goal) DO UPDATE SET encrypted_payload=excluded.encrypted_payload,observed_at=excluded.observed_at,authorization_generation=excluded.authorization_generation RETURNING goal").bind(goal, encrypted, now, generation, generation).first();
     if (!saved) throw new SafeError('Owner authorization changed during discovery; old account observations were discarded', 409);
-    summaries.push({goal, records: records.length, pagination_complete: complete});
+    summaries.push({goal: discoveryGoal, records: records.length, pagination_complete: complete});
   }
   return {status: 'private_fixed_bounties_observed', summaries, live_publishing: false};
 }
