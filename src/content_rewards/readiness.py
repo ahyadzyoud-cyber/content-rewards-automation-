@@ -117,12 +117,8 @@ def preflight(workflow: Workflow, job_id: str) -> dict:
         blockers.append("Owner publication approval is pending")
     elif media is not None and workflow._digest(job) != job["approval"].get("digest"):
         blockers.append("Publication approval changed or is no longer valid; review the exact job again")
-    if not campaign.get("payout_eligibility_verified") or not campaign.get("payout_evidence", "").strip():
-        blockers.append("Verify Jordan payout support and completion of this provider's payout setup")
-    if not campaign.get("qualifying_views_terms", "").strip():
-        blockers.append("Verify qualifying-view rules, measurement window and submission requirements")
-    if not campaign.get("expires_at"):
-        blockers.append("Verify the current campaign deadline or explicitly documented absence of a deadline")
+    compliance = workflow.publication_compliance(job, media=media)
+    blockers += compliance["blockers"]
     return {"job_id": job_id, "campaign_source_url": campaign["source_url"],
             "campaign_id": campaign["id"], "campaign_title": campaign["title"],
             "platform": job["platform"], "title": job["title"], "caption": job["caption"],
@@ -132,6 +128,7 @@ def preflight(workflow: Workflow, job_id: str) -> dict:
             "maximum_reward_per_video_usd": campaign.get("maximum_reward_per_video_usd"),
             "audience_country_requirements": campaign.get("audience_country_requirements", []),
             "automation_operator_attested": bool(campaign.get("automation_authorized") and campaign.get("automation_evidence")),
+            "compliance": compliance,
             "requirements_to_review": campaign.get("requirements", []), "blockers": blockers,
             "external_writes": False, "approved_by_this_check": False,
             "campaign_submission_verified": False, "payout_verified": False,

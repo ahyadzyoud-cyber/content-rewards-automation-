@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from functools import partial
 
 import httpx
+from compliance_fixtures import publication_evidence, video_metadata
 
 from content_rewards import oauth
 from content_rewards.config import Settings
@@ -46,10 +47,12 @@ async def test_refresh_connect_publish_and_track_share_renewable_credentials(tmp
             "eligibility_evidence": "Synthetic fixture only", "allowed_platforms": ["youtube"],
             "allows_new_accounts": True, "requirements_verified": True, "rights_verified": True,
             "materials": [str(source)], "evidence_checked_at": datetime.now(UTC).isoformat(),
+            **publication_evidence(platform="youtube"),
         }])
         def render(source, output, **kwargs):
             output.write_bytes(b"reviewed mp4")
         monkeypatch.setattr("content_rewards.service.render_short", render)
+        monkeypatch.setattr("content_rewards.service.inspect_video", video_metadata)
         job = flow.plan("fixture", "youtube", source, "Reviewed test video")
         flow.render(job["id"])
         flow.approve(job["id"], "Synthetic test fixture owner review")

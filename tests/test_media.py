@@ -35,9 +35,26 @@ def test_real_render_preserves_literal_caption_and_adds_audio(source_video: Path
     assert result["audio_codec"] == "aac"
     assert result["pixel_format"] == "yuv420p"
     assert result["frame_rate"] == "30/1"
+    assert "mp4" in result["container_format"].split(",")
+    assert result["container_brand"].strip() == "isom"
     assert 0 < result["duration_seconds"] < 0.4
     assert inspect_video(output)["width"] == 1080
     assert not list(tmp_path.glob(".render-*"))
+
+
+def test_probe_distinguishes_mov_bytes_despite_mp4_filename(source_video: Path, tmp_path: Path):
+    mov = tmp_path / "original.mov"
+    subprocess.run(
+        ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
+         "-i", str(source_video), "-c", "copy", str(mov)],
+        check=True, timeout=30,
+    )
+    disguised = tmp_path / "renamed.mp4"
+    mov.rename(disguised)
+    probed = inspect_video(disguised)
+    # FFprobe lists both format names for this family; the actual brand matters.
+    assert "mp4" in probed["container_format"].split(",")
+    assert probed["container_brand"].strip() == "qt"
 
 
 def test_rights_are_required_before_any_media_work(tmp_path: Path):

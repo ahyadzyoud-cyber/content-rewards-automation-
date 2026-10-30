@@ -8,7 +8,23 @@ No new environment Publish, app registration, credentials or repeated consent is
 required for the code changes in this update. Keep
 `REWARDS_LIVE_PUBLISHING=false`.
 
-## Next: payout verification and the actual brief
+## Next: a fulfillable brief and licensed materials
+
+The current priority is a fulfillable campaign and approved source materials.
+The latest full official detail checks still show only two known offers, both
+requiring live participation. One requests attached clips, without a social
+publication requirement; the other requires a TikTok slideshow. Both are
+temporarily deferred for automated execution and retained in the research queue.
+Do not prepare a YouTube/Instagram MP4 as a substitute for either workflow.
+See [the mandatory compliance procedure](publication-compliance.md).
+
+To prepare the first real video, provide the complete official brief and
+campaign-approved materials with documented reuse permission for an offer that
+permits the proposed automated editing/posting workflow. Share source files or
+a permitted provider export through private file delivery, without credentials.
+The agent can then verify the required platform and request only that account's
+authorization. A website link or verbal permission to use someone else's
+copyrighted footage is not sufficient license evidence.
 
 1. Open the existing [owner opportunities page](https://content-rewards-whop.content-rewards-dc8a4aba9226.workers.dev/opportunities)
    and sign in with the existing owner login. Review the current private briefs

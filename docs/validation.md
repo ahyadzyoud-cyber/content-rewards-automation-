@@ -502,3 +502,41 @@ pending proofs from global counts. These changes passed 118 Whop
 reader/ranking/workflow and 147 Instagram/adapter targeted cases. The source-only
 code-update path passed 42 mocked deployment cases. Actual social consent, quota and token
 renewal remain unverified without owner authorization.
+
+
+## Mandatory full-brief publication compliance
+
+On 2026-10-30, fresh authenticated clipping/UGC discovery was fully paginated.
+It still returned only the two known fixed bounties. The documented anonymous
+Retrieve Bounty operation returned HTTP 200 for both known IDs; descriptions
+matched the authenticated listings. Private, complete requirement inventories
+were retained with the official text/hash. Both offers were temporarily deferred
+for unattended execution, preserving the research queue. Their mandatory live
+participation, rights and platform/submission gaps prevented preparation of a
+fully compliant real video. No provider-recommended paid feature was activated.
+No social account is authorized; publication remains false.
+
+Publication approval and the actual publishing path now both enforce a full
+reviewed brief, explicit coverage of all mandatory categories, measured media
+and required metadata, and fresh individual manual proofs bound to the exact
+video/metadata/campaign/account. Legacy records without that evidence remain
+readable but cannot pass. Optional entries and post-publication placement cannot
+stand in for critical pre-publication requirements. Future view thresholds and
+submission proofs remain pending, not passed or required before the first post.
+The staged file is rechecked before a provider write and again after Instagram
+processing. Atomic approval/review changes preserve concurrent upload claims.
+
+Preparation applies supported reviewed duration and literal metadata constraints,
+defers unsupported or failed renders and moves to the next candidate, retaining
+smaller offers. An actual FFmpeg regression verifies that a MOV renamed .mp4 is
+still measured as MOV. Unknown content, rights and human participation are not
+inferred from those mechanical checks or a successful upload.
+
+Validation passed: full Python suite693 cases, including the real media probes,
+new compliance unit/workflow/selection regressions and previous adapters, OAuth,
+concurrency and persistence tests. Ruff and diff checks passed. The existing
+Whop callback/credentials, D1 data, keys, cloud settings and schedules were not
+changed; there is no need for another environment Publish or callback redeploy.
+The Python application code is updated through the existing source checkout and
+GitHub. No live publication, campaign submission, confirmed reward or payout
+occurred, and no first real video is represented as ready for approval.

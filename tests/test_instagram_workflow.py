@@ -6,6 +6,7 @@ from pathlib import Path
 
 import httpx
 import pytest
+from compliance_fixtures import publication_evidence, video_metadata
 
 from content_rewards import feeds
 from content_rewards.config import Settings
@@ -56,6 +57,7 @@ def instagram_workflow(tmp_path, monkeypatch):
         Path(output).write_bytes(RENDERED)
 
     monkeypatch.setattr("content_rewards.service.render_short", render)
+    monkeypatch.setattr("content_rewards.service.inspect_video", video_metadata)
     workflow = Workflow(settings)
     source = tmp_path / "approved.mp4"
     source.write_bytes(b"approved-campaign-material")
@@ -67,6 +69,7 @@ def instagram_workflow(tmp_path, monkeypatch):
         "allowed_platforms": ["instagram"], "allows_new_accounts": True,
         "requirements_verified": True, "rights_verified": True, "materials": [str(source)],
         "evidence_checked_at": datetime.now(UTC).isoformat(),
+        **publication_evidence(platform="instagram"),
     }])
     job = workflow.plan("instagram-campaign", "instagram", source, "Approved title", "Approved caption")
     return workflow, workflow.render(job["id"])

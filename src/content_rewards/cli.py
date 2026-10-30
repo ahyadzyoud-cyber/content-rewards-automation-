@@ -39,6 +39,10 @@ def parser() -> argparse.ArgumentParser:
     render = sub.add_parser("render")
     render.add_argument("job_id")
     render.add_argument("--duration", type=float, default=30)
+    review = sub.add_parser("review-compliance", help="Record individual proof evidence without approving publication")
+    review.add_argument("job_id")
+    review.add_argument("file", type=Path, help="Private JSON object mapping mandatory requirement IDs to reviewed proofs")
+    review.add_argument("--video-url", help="Instagram only: approved immutable URL for these exact video bytes")
     approve = sub.add_parser("approve")
     approve.add_argument("job_id")
     approve.add_argument("--reason", required=True, help="Record your review of eligibility, video, claims, rights and campaign requirements")
@@ -129,6 +133,11 @@ def execute(args, workflow: Workflow):
             return workflow.plan(args.campaign_id, args.platform, args.source, args.title, args.caption)
         case "render":
             return workflow.render(args.job_id, args.duration)
+        case "review-compliance":
+            proofs = json.loads(args.file.read_text())
+            if not isinstance(proofs, dict):
+                raise ValueError("Compliance proofs must map requirement IDs to evidence")
+            return workflow.review_compliance(args.job_id, proofs, video_url=args.video_url)
         case "approve":
             return workflow.approve(args.job_id, args.reason, video_url=args.video_url)
         case "publish":

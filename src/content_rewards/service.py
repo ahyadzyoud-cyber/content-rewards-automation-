@@ -10,8 +10,9 @@ from uuid import uuid4
 
 import httpx
 
+from .compliance import JobComplianceReview, compliance_report
 from .config import Settings
-from .media import render_short
+from .media import MediaError, inspect_video, render_short
 from .models import Campaign
 from .ranking import rank_campaigns
 from .store import Store, utcnow
@@ -48,6 +49,9 @@ class Workflow:
                 campaign.payout_eligibility_verified = False
                 campaign.automation_authorized = False
                 campaign.evidence_checked_at = None
+                # A provider feed cannot attest that its own complete brief or
+                # manual requirements were independently reviewed by the owner.
+                campaign.publication_spec = None
             self.store.put("campaign", campaign.id, campaign.model_dump(mode="json"))
         self.store.event("campaign_import", "batch", {"count": len(campaigns), "untrusted_feed": untrusted_feed})
         return len(campaigns)
@@ -117,28 +121,143 @@ class Workflow:
             sources = [Path(p) for p in campaign.materials if "://" not in p and Path(p).is_file()]
             if not sources:
                 continue
-            job = self.plan(campaign.id, platform, sources[0], campaign.title[:100], _automatic=True)
-            return self.render(job["id"])
-        raise Blocked("Eligible campaigns already have candidates or need approved local media")
+            try:
+                duration, title, caption = self._preparation_settings(campaign)
+                job = self.plan(campaign.id, platform, sources[0], title, caption, _automatic=True)
+                draft = self.render(job["id"], duration)
+                report = self.publication_compliance(draft)
+                machine_checks = {item.id for item in campaign.publication_spec.requirements
+                                  if item.critical and item.stage == "prepublication"
+                                  and item.status == "verified" and item.check != "manual"} if campaign.publication_spec else set()
+                if any(check["id"] in machine_checks and check["status"] != "verified"
+                       for check in report["checks"]):
+                    raise Blocked("Rendered bytes or metadata do not meet the required campaign constraints")
+                return draft
+            except (Blocked, MediaError) as error:
+                # A failed preparation is not a failed publication. Retain its
+                # record and reservation; never reset an uncertain write barrier.
+                self.store.event("preparation_deferred", campaign.id, {"error_type": type(error).__name__})
+                continue
+        raise Blocked("Eligible campaigns already have candidates, need approved media, or have unsupported preparation requirements")
+
+    @staticmethod
+    def _preparation_settings(campaign: Campaign) -> tuple[float, str, str]:
+        """Apply reviewed mechanical constraints supported by the existing editor.
+
+        Subjective content and human-participation proof still need review of
+        the rendered bytes. This does not establish publication compliance.
+        """
+        lower, upper = 0.0, 60.0
+        title_parts, caption_parts = [], []
+        for item in campaign.publication_spec.requirements if campaign.publication_spec else []:
+            if item.stage != "prepublication" or item.status != "verified":
+                continue
+            if item.check == "duration":
+                lower = max(lower, item.minimum or 0.0)
+                upper = min(upper, item.maximum if item.maximum is not None else 60.0)
+            elif item.check == "format" and item.value != "mp4":
+                raise Blocked("The existing editor cannot produce the campaign's required container")
+            elif item.check == "aspect_ratio":
+                try:
+                    width, height = (int(value) for value in (item.value or "").split(":"))
+                    if width <= 0 or height <= 0 or width * 16 != height * 9:
+                        raise ValueError
+                except ValueError:
+                    raise Blocked("The existing editor cannot produce the campaign's required aspect ratio") from None
+            elif item.check == "title_contains":
+                title_parts.extend(item.values or [])
+            elif item.check in {"caption_contains", "hashtags", "mentions"}:
+                caption_parts.extend(item.values or [])
+        if lower > upper or upper <= 0:
+            raise Blocked("The required duration cannot be produced by the existing editor")
+        title = " ".join(dict.fromkeys(title_parts)) if title_parts else campaign.title[:100]
+        caption = "\n".join(dict.fromkeys(caption_parts))
+        if not title.strip() or len(title) > 100 or len(caption) > 2200:
+            raise Blocked("Required metadata exceeds the configured publication adapter's limits")
+        return max(lower, min(30.0, upper)), title, caption
 
     def _check_material(self, job: dict, campaign: Campaign):
         approved = [Path(p).resolve() for p in campaign.materials if "://" not in p]
         if Path(job["source_path"]).resolve() not in approved:
             raise Blocked("Source material authorization was revoked; create a new plan")
 
-    def _digest(self, job: dict, media_hash: str | None = None) -> str:
+    def _digest(self, job: dict, media_hash: str | None = None, *, include_review: bool = True) -> str:
         # Approval is bound to exact media, metadata, target and current campaign evidence.
         fields = {k: job.get(k) for k in ("id", "campaign_id", "platform", "title", "caption", "video_url")}
         fields["sha256"] = media_hash or file_hash(Path(job["media_path"]))
         fields["campaign"] = self.store.get("campaign", job["campaign_id"])
         fields["account"] = (self.settings.youtube_channel_id if job["platform"] == "youtube"
                              else self.settings.instagram_account_id)
+        if include_review:
+            fields["compliance_review"] = job.get("compliance_review")
         return hashlib.sha256(json.dumps(fields, sort_keys=True).encode()).hexdigest()
+
+    def publication_compliance(self, job: dict, *, media_path: Path | None = None,
+                               media: dict | None = None) -> dict:
+        """Check the exact deliverable without approval, network I/O or writes."""
+        campaign = Campaign.model_validate(self.store.get("campaign", job["campaign_id"]))
+        blockers = []
+        measured = media
+        binding = ""
+        try:
+            if not job.get("media_path"):
+                raise Blocked("Render this job before publication review")
+            path = media_path or Path(job["media_path"])
+            actual_hash = file_hash(path)
+            if actual_hash != job.get("media_sha256"):
+                blockers.append("Rendered media differs from the prepared job")
+            measured = measured if measured is not None else inspect_video(path)
+            binding = self._digest(job, actual_hash, include_review=False)
+        except (Blocked, ValueError, OSError):
+            blockers.append("Rendered media is missing, invalid or not ready for review")
+        report = compliance_report(campaign, job, measured, binding_digest=binding)
+        blockers += report["blockers"]
+        if not campaign.payout_eligibility_verified or not campaign.payout_evidence.strip():
+            blockers.append("Verify Jordan payout support and completion of this provider's payout setup")
+        if not campaign.qualifying_views_terms.strip():
+            blockers.append("Verify qualifying-view rules, measurement window and submission requirements")
+        no_deadline_reviewed = bool(campaign.publication_spec and any(
+            item.category == "deadline" and item.status == "not_applicable"
+            for item in campaign.publication_spec.requirements))
+        if campaign.expires_at is None and not no_deadline_reviewed:
+            blockers.append("Verify the current campaign deadline or explicitly documented absence of a deadline")
+        return report | {"blockers": blockers, "compliant": not blockers, "media": measured}
+
+    def _require_publication_compliance(self, job: dict, *, media_path: Path | None = None):
+        report = self.publication_compliance(job, media_path=media_path)
+        if report["blockers"]:
+            raise Blocked("; ".join(report["blockers"]))
+
+    def review_compliance(self, job_id: str, proofs: dict, *, video_url: str | None = None) -> dict:
+        """Record individual manual reviews, bound to bytes, metadata and target.
+
+        This is separate from publication approval. Recording or changing a
+        review invalidates any previous publication approval.
+        """
+        job = self.store.get("job", job_id)
+        if job["state"] not in {"rendered", "approved"}:
+            raise Blocked("Only a rendered deliverable can receive a compliance review")
+        previous = dict(job)
+        self.campaign_for(job["campaign_id"], job["platform"])
+        if video_url is not None:
+            job["video_url"] = video_url
+            self._check_instagram_url(job)
+        if file_hash(Path(job["media_path"])) != job.get("media_sha256"):
+            raise Blocked("Rendered file changed; review a newly rendered deliverable")
+        review = JobComplianceReview(digest=self._digest(job, include_review=False),
+                                     reviewed_at=utcnow(), proofs=proofs)
+        job["compliance_review"] = review.model_dump(mode="json")
+        job.update(state="rendered", approval=None)
+        if not self.store.claim_job(job_id, previous["state"], job, previous):
+            raise Blocked("The deliverable changed during compliance review; review the current state again")
+        self.store.event("compliance_reviewed", job_id, {"at": review.reviewed_at.isoformat()})
+        return job
 
     def approve(self, job_id: str, reason: str, *, video_url: str | None = None) -> dict:
         job = self.store.get("job", job_id)
         if job["state"] != "rendered":
             raise Blocked("Only a rendered job can be approved; review the actual output first")
+        previous = dict(job)
         self.campaign_for(job["campaign_id"], job["platform"])
         account = (self.settings.youtube_channel_id if job["platform"] == "youtube"
                    else self.settings.instagram_account_id)
@@ -155,9 +274,11 @@ class Workflow:
             self._check_instagram_url(job)
         if file_hash(Path(job["media_path"])) != job["media_sha256"]:
             raise Blocked("Rendered file changed; create and review a new job")
+        self._require_publication_compliance(job)
         job["approval"] = {"digest": self._digest(job), "at": utcnow(), "reason": reason}
         job["state"] = "approved"
-        self.store.put("job", job_id, job)
+        if not self.store.claim_job(job_id, "rendered", job, previous):
+            raise Blocked("The deliverable changed during approval; review the current state again")
         self.store.event("publication_approved", job_id, {"at": job["approval"]["at"]})
         return job
 
@@ -218,6 +339,7 @@ class Workflow:
         self.campaign_for(job["campaign_id"], job["platform"])
         if self._digest(job) != job["approval"]["digest"]:
             raise Blocked("Media, metadata, evidence or target account changed after approval")
+        self._require_publication_compliance(job)
         publisher = publisher or await self._publisher(job["platform"])
         expected = (self.settings.youtube_channel_id if job["platform"] == "youtube"
                     else self.settings.instagram_account_id)
@@ -241,6 +363,7 @@ class Workflow:
                 os.fsync(staged.fileno())
             if self._digest(job, file_hash(staged_path)) != job["approval"]["digest"]:
                 raise Blocked("Media, evidence or account changed during verification; review again")
+            self._require_publication_compliance(job, media_path=staged_path)
             return await self._publish_claimed(job, publisher, staged_path)
         finally:
             staged_path.unlink(missing_ok=True)
@@ -274,6 +397,7 @@ class Workflow:
                 if (self._digest(job, file_hash(staged_path)) != job["approval"]["digest"]
                         or self.store.get("job", job_id) != job):
                     raise Blocked("Approval or eligibility changed during Instagram processing; publication stopped")
+                self._require_publication_compliance(job, media_path=staged_path)
                 job["remote_id"] = await publisher.publish_container(job["container_id"])
             job["state"] = "published"
             job["published_at"] = utcnow()

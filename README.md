@@ -98,6 +98,12 @@ The transport adapters are mock-tested. Google upload methods were checked again
 
 Publication requires explicit approval of each rendered job, bound to its bytes, metadata, account and campaign evidence. After the first approved live publication, broader recurring publication consent can be designed around verified platform/campaign rules; it is intentionally not silently granted here. Campaign submissions, approval and payout are never inferred from views.
 
+The [mandatory publication compliance gate](docs/publication-compliance.md)
+also requires a reviewed full brief and every mandatory condition. It checks
+actual media and required metadata, binds individual manual proofs to the exact
+deliverable, and blocks missing or unmet critical requirements at approval and
+publication. Existing broad verification flags alone cannot bypass this check.
+
 No cloud subscription, paid generation, paid API, hosting purchase, payout action or publication occurs during installation. Docker files prepare deployment; they do not create a free hosting entitlement or deploy anything. Development environment publication preserves files, not an always-on business worker.
 
 The preferred [free public observer](docs/free-cloud-observer.md) runs on standard public GitHub runners every six hours. Two actual runs passed, including checkpoint restoration into sequence 2. It uses a small public Git branch instead of billed artifact storage or privileged variable APIs. With no permitted feed configured, it reports that blocker and keeps publication/production verification false. This verifies cloud execution and state persistence, not a live business. The older artifact-based workflow remains behind its original opt-in gates and is not activated by this setup.

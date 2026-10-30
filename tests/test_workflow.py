@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from compliance_fixtures import publication_evidence, video_metadata
 from pydantic import ValidationError
 
 from content_rewards.config import Settings
@@ -50,6 +51,7 @@ def workflow(tmp_path, monkeypatch):
         Path(output).write_bytes(b"rendered-mp4")
 
     monkeypatch.setattr("content_rewards.service.render_short", fake_render)
+    monkeypatch.setattr("content_rewards.service.inspect_video", video_metadata)
     return Workflow(settings)
 
 
@@ -68,6 +70,7 @@ def campaign_record(tmp_path, **updates):
         "requirements_verified": True, "rights_verified": True,
         "materials": [str(source)],
         "evidence_checked_at": datetime.now(UTC).isoformat(),
+        **publication_evidence(),
     } | updates
 
 
@@ -420,6 +423,63 @@ def test_prepare_best_blocks_when_no_verified_eligible_campaign_exists(workflow,
     with pytest.raises(Blocked, match="No verified eligible campaign"):
         workflow.prepare_best("youtube")
     assert workflow.store.list("job") == []
+
+
+def test_prepare_uses_reviewed_duration_and_literal_required_metadata(workflow, tmp_path, monkeypatch):
+    campaign = campaign_record(tmp_path)
+    for requirement in campaign["publication_spec"]["requirements"]:
+        if requirement["id"] == "duration":
+            requirement.update(minimum=45.0, maximum=55.0)
+        elif requirement["id"] == "title":
+            requirement.update(status="verified", check="title_contains", values=["Approved headline"])
+        elif requirement["id"] == "caption":
+            requirement.update(status="verified", check="caption_contains", values=["Paid promotion"])
+        elif requirement["id"] == "hashtags":
+            requirement.update(status="verified", check="hashtags", values=["#Approved"])
+        elif requirement["id"] == "mentions":
+            requirement.update(status="verified", check="mentions", values=["@brand.account"])
+    workflow.import_campaigns([campaign])
+    measured = []
+
+    def render(source, output, **kwargs):
+        measured.append(kwargs["duration_seconds"])
+        Path(output).write_bytes(b"rendered-mp4")
+
+    monkeypatch.setattr("content_rewards.service.render_short", render)
+    monkeypatch.setattr("content_rewards.service.inspect_video", lambda path: video_metadata(path) | {"duration_seconds": 45.0})
+    job = workflow.prepare_best("youtube")
+    assert measured == [45.0]
+    assert job["title"] == "Approved headline"
+    assert job["caption"] == "Paid promotion\n#Approved\n@brand.account"
+    assert job["state"] == "rendered" and job["approval"] is None
+
+
+@pytest.mark.parametrize("failure", ["square", "duration", "render", "short_bytes"])
+def test_prepare_defers_unfulfillable_offer_and_prepares_next_small_offer(workflow, tmp_path, monkeypatch, failure):
+    high = campaign_record(tmp_path, id="high", rate_per_1000_views_usd=100,
+                           remaining_budget_usd=10000)
+    small = campaign_record(tmp_path, id="small", rate_per_1000_views_usd=0.01)
+    for item in high["publication_spec"]["requirements"]:
+        if failure == "square" and item["id"] == "aspect_ratio":
+            item["value"] = "1:1"
+        if failure in {"duration", "short_bytes"} and item["id"] == "duration":
+            item.update(minimum=90.0 if failure == "duration" else 45.0)
+            item.update(maximum=120.0 if failure == "duration" else 60.0)
+    workflow.import_campaigns([small, high])
+    if failure == "render":
+        def render(source, output, **kwargs):
+            from content_rewards.media import MediaError
+            high_jobs = [job for job in workflow.store.list("job") if job["campaign_id"] == "high"]
+            if any(Path(output).stem == job["id"] for job in high_jobs):
+                raise MediaError("Undecodable approved source")
+            Path(output).write_bytes(b"rendered-mp4")
+        monkeypatch.setattr("content_rewards.service.render_short", render)
+    result = workflow.prepare_best("youtube")
+    assert result["campaign_id"] == "small"
+    assert result["approval"] is None and result["remote_id"] is None
+    assert len(workflow.store.list("campaign")) == 2
+    with workflow.store.connect() as db:
+        assert db.execute("SELECT COUNT(*) FROM events WHERE kind='preparation_deferred' AND entity_id='high'").fetchone()[0] == 1
 
 
 async def test_scheduler_prepare_uses_platform_and_does_not_repeat_candidate(workflow, tmp_path):

@@ -5,6 +5,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
 
+from .compliance import PublicationSpec
+
 Platform = Literal["youtube", "instagram"]
 Source = Literal["whop", "content_rewards", "vyro", "manual"]
 NonNegativeMoney = Annotated[float, Field(ge=0, allow_inf_nan=False)]
@@ -55,6 +57,7 @@ class Campaign(BaseModel):
     active: bool = True
     evidence_checked_at: datetime | None = None
     expires_at: datetime | None = None
+    publication_spec: PublicationSpec | None = None
 
     @field_validator("source_url")
     @classmethod

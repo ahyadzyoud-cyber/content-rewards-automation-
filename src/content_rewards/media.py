@@ -75,6 +75,8 @@ def inspect_video(path: Path) -> dict[str, Any]:
             "audio_codec": audio.get("codec_name"),
             "pixel_format": video.get("pix_fmt"),
             "frame_rate": video.get("avg_frame_rate"),
+            "container_format": data.get("format", {}).get("format_name"),
+            "container_brand": data.get("format", {}).get("tags", {}).get("major_brand"),
         }
     except (KeyError, StopIteration, TypeError, ValueError, json.JSONDecodeError) as exc:
         raise MediaError("Source must contain a video stream with a known positive duration") from exc
